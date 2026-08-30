@@ -51,6 +51,10 @@ const T = {
     your_puppy: 'your puppy',
     reminder_missed: (s) => `⏰ ${s} — not logged yet. Tap to log now.`,
     t_speech_err: "Couldn't hear that — try again", t_listening: 'Listening…',
+    delete_food: 'Delete this food',
+    delete_food_q: (n) => `Delete ${n}?`,
+    delete_food_msg: 'Past meals of this food will show as unknown food, and it will drop out of old suspect reports. This cannot be undone.',
+    t_food_deleted: 'Food deleted', unknown_food: 'Unknown food',
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
       'black drool': 'black drool', 'excessive drooling': 'excessive drooling',
@@ -106,6 +110,10 @@ const T = {
     your_puppy: 'உங்கள் குட்டி',
     reminder_missed: (s) => `⏰ ${s} — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.`,
     t_speech_err: 'கேட்கவில்லை — மீண்டும் முயற்சிக்கவும்', t_listening: 'கேட்கிறது…',
+    delete_food: 'இந்த உணவை நீக்கு',
+    delete_food_q: (n) => `${n}-ஐ நீக்கவா?`,
+    delete_food_msg: 'இந்த உணவின் பழைய உணவு பதிவுகள் தெரியாத உணவாக காட்டப்படும்; பழைய சந்தேக அறிக்கைகளிலிருந்தும் நீங்கும். இதை மீட்டெடுக்க முடியாது.',
+    t_food_deleted: 'உணவு நீக்கப்பட்டது', unknown_food: 'தெரியாத உணவு',
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
       'black drool': 'கருப்பு உமிழ்நீர்', 'excessive drooling': 'அதிக உமிழ்நீர் வடிதல்',
@@ -196,7 +204,7 @@ function esc(s) {
 }
 function foodName(id) {
   const f = state.foods.find((x) => x.ROWID === id);
-  return f ? f.Name : '—';
+  return f ? f.Name : t('unknown_food');
 }
 function puppyName(id) {
   const p = state.puppies.find((x) => x.ROWID === String(id ?? ''));
@@ -546,7 +554,30 @@ function sheetAddFood(existing) {
     <div class="lbl">${t('type')}</div>
     ${chipGroup('ftype', FOOD_TYPES, f?.FoodType || 'kibble', (ty) => `${FOOD_EMOJI[ty]} ${esc(ftLabel(ty))}`)}
     ${state.puppies.length ? `<div class="lbl">${t('usually_for')}</div>${puppyTagChips(f?.UsualPuppyId)}` : ''}
-    <button class="cta" id="save-food" style="margin-top:16px">${f ? t('save_changes') : t('save_food')}</button>`);
+    <button class="cta" id="save-food" style="margin-top:16px">${f ? t('save_changes') : t('save_food')}</button>
+    ${f ? `<button class="cta-danger" id="del-food">${t('delete_food')}</button>` : ''}`);
+  const delBtn = $('#del-food');
+  if (delBtn && f) {
+    delBtn.onclick = () => {
+      openSheet(`
+        <h3>${t('delete_food_q', esc(f.Name))}</h3>
+        <p class="s-sub">${t('delete_food_msg')}</p>
+        <div class="confirm-actions">
+          <button class="btn-ghost" id="cancel-delf">${t('cancel')}</button>
+          <button class="btn-danger" id="confirm-delf">${t('remove')}</button>
+        </div>`);
+      $('#cancel-delf').onclick = () => sheetAddFood(f);
+      $('#confirm-delf').onclick = async () => {
+        try {
+          await call(`/foods?id=${f.ROWID}`, { method: 'DELETE' });
+          closeSheet();
+          state.foods = (await call('/foods')).foods;
+          render();
+          toast(t('t_food_deleted'));
+        } catch (e) { toast(e.message); }
+      };
+    };
+  }
   $('#save-food').onclick = async () => {
     const name = $('#fo-name').value.trim();
     if (!name) return toast(t('t_need_food_name'));

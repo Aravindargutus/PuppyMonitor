@@ -56,6 +56,9 @@ object Strings {
         "notif_title" to "🐾 Bonzaa — feeding time!",
         "notif_body" to "%s meal is not logged yet. Feed your puppy and log it.",
         "speak_now" to "Speak now",
+        "delete_food" to "Delete this food",
+        "delete_food_q" to "Delete %s?",
+        "delete_food_msg" to "Past meals of this food will show as unknown food, and it will drop out of old suspect reports. This cannot be undone.",
     )
 
     val ta = mapOf(
@@ -106,6 +109,9 @@ object Strings {
         "notif_title" to "🐾 Bonzaa — உணவு நேரம்!",
         "notif_body" to "%s உணவு இன்னும் பதிவாகவில்லை. குட்டிக்கு உணவு கொடுத்து பதிவு செய்யவும்.",
         "speak_now" to "இப்போது பேசுங்கள்",
+        "delete_food" to "இந்த உணவை நீக்கு",
+        "delete_food_q" to "%s-ஐ நீக்கவா?",
+        "delete_food_msg" to "இந்த உணவின் பழைய உணவு பதிவுகள் தெரியாத உணவாக காட்டப்படும்; பழைய சந்தேக அறிக்கைகளிலிருந்தும் நீங்கும். இதை மீட்டெடுக்க முடியாது.",
     )
 
     // Canonical symptom/reaction keys → localized labels.

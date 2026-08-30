@@ -255,6 +255,10 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                 vm.updateFood(food.id, name, brand, type, usualPuppyId)
                 editFood = null
             },
+            onDelete = {
+                vm.deleteFood(food.id)
+                editFood = null
+            },
         )
     }
     if (showAddPuppy) {

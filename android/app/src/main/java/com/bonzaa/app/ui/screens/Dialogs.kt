@@ -207,8 +207,10 @@ fun AddFoodSheet(
     existing: com.bonzaa.app.data.FoodItem? = null,
     onDismiss: () -> Unit,
     onSave: (name: String, brand: String, type: String, usualPuppyId: String?) -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     val lang = com.bonzaa.app.ui.LocalLang.current
+    var confirmDelete by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var brand by remember { mutableStateOf(existing?.brand ?: "") }
     var type by remember { mutableStateOf(existing?.foodType ?: FoodTypes.first()) }
@@ -268,7 +270,33 @@ fun AddFoodSheet(
                 enabled = name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (existing == null) lang["save_food"] else lang["save_changes"]) }
+
+            if (existing != null && onDelete != null) {
+                androidx.compose.material3.TextButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(lang["delete_food"], color = MaterialTheme.colorScheme.error) }
+            }
         }
+    }
+
+    if (confirmDelete && existing != null && onDelete != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(lang.fmt("delete_food_q", existing.name)) },
+            text = { Text(lang["delete_food_msg"]) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text(lang["remove"], color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { confirmDelete = false }) {
+                    Text(lang["cancel"])
+                }
+            },
+        )
     }
 }
 

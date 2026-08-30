@@ -231,6 +231,13 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 }
 @keyframes slide { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 
+.cta-danger {
+  display: block; width: 100%; text-align: center;
+  background: transparent; color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  font-weight: 700; font-size: 14.5px; padding: 12px; border-radius: 99px; margin-top: 10px;
+}
+
 .confirm-actions { display: flex; gap: 10px; margin-top: 16px; }
 .confirm-actions button { flex: 1; padding: 12px; border-radius: 99px; font-weight: 700; }
 .btn-ghost { border: 1px solid var(--outline); }

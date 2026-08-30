@@ -130,6 +130,11 @@ class AppViewModel : ViewModel() {
         _state.value = _state.value.copy(foods = api.getFoods().foods)
     }
 
+    fun deleteFood(id: String) = launchSafe {
+        api.deleteFood(id)
+        _state.value = _state.value.copy(foods = api.getFoods().foods)
+    }
+
     fun addFeeding(
         foodItemId: String,
         quantity: Double,
