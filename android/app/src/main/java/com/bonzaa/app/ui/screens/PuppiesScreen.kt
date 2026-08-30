@@ -36,13 +36,14 @@ import java.time.Period
 
 @Composable
 fun PuppiesScreen(state: UiState, onDelete: (String) -> Unit) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     var confirmDelete by remember { mutableStateOf<Puppy?>(null) }
 
     if (state.puppies.isEmpty()) {
         EmptyState(
             emoji = "🐶",
-            title = "No puppies yet",
-            message = "Add your puppies with the + button — then start logging their meals from morning to night.",
+            title = lang["no_puppies_title"],
+            message = lang["no_puppies_msg"],
         )
         return
     }
@@ -61,16 +62,16 @@ fun PuppiesScreen(state: UiState, onDelete: (String) -> Unit) {
     confirmDelete?.let { puppy ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Remove ${puppy.name}?") },
-            text = { Text("This removes the puppy from Bonzaa. Meal and symptom history stays in the database but will no longer be shown.") },
+            title = { Text(lang.fmt("remove_q", puppy.name)) },
+            text = { Text(lang["remove_msg"]) },
             confirmButton = {
                 TextButton(onClick = {
                     onDelete(puppy.id)
                     confirmDelete = null
-                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                }) { Text(lang["remove"], color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { confirmDelete = null }) { Text(lang["cancel"]) }
             },
         )
     }

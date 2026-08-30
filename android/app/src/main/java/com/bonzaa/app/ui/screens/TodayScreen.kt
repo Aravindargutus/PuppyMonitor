@@ -43,6 +43,7 @@ fun TodayScreen(
     onSelectDate: (LocalDate) -> Unit,
     onDeleteFeeding: (String) -> Unit,
 ) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     val headerFmt = DateTimeFormatter.ofPattern("EEE, d MMM")
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -79,7 +80,7 @@ fun TodayScreen(
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous day")
             }
             Text(
-                text = if (state.date == LocalDate.now()) "Today · ${state.date.format(headerFmt)}"
+                text = if (state.date == LocalDate.now()) "${lang["today_prefix"]} · ${state.date.format(headerFmt)}"
                 else state.date.format(headerFmt),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
@@ -96,8 +97,8 @@ fun TodayScreen(
         if (state.puppies.isEmpty()) {
             EmptyState(
                 emoji = "🐾",
-                title = "Welcome to Bonzaa",
-                message = "Add your first puppy in the Puppies tab to start tracking meals.",
+                title = lang["welcome_title"],
+                message = lang["welcome_msg"],
             )
             return@Column
         }
@@ -112,13 +113,13 @@ fun TodayScreen(
         ) {
             MealSlots.forEach { slot ->
                 item(key = "header_${slot.key}") {
-                    SectionHeader(slot.emoji, slot.label)
+                    SectionHeader(slot.emoji, lang[slot.key])
                 }
                 val meals = bySlot[slot.key].orEmpty()
                 if (meals.isEmpty()) {
                     item(key = "empty_${slot.key}") {
                         Text(
-                            "No meals logged",
+                            lang["no_meals"],
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
@@ -141,6 +142,7 @@ fun TodayScreen(
 
 @Composable
 private fun MealCard(feeding: Feeding, foodName: String, onDelete: () -> Unit) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -159,14 +161,14 @@ private fun MealCard(feeding: Feeding, foodName: String, onDelete: () -> Unit) {
                 ) {
                     Text(foodName, style = MaterialTheme.typography.titleMedium)
                     if (feeding.isNewFood) {
-                        TagChip("NEW", Honey.copy(alpha = 0.4f), MaterialTheme.colorScheme.onSurface)
+                        TagChip(lang["badge_new"], Honey.copy(alpha = 0.4f), MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 val time = feeding.fedAt.substringAfter(' ').take(5)
                 val qty = if (feeding.quantity > 0.0) {
                     "${feeding.quantity.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }} ${feeding.unit ?: ""} · "
                 } else ""
-                val fedBy = feeding.fedBy?.takeIf { it.isNotBlank() }?.let { " · by $it" } ?: ""
+                val fedBy = feeding.fedBy?.takeIf { it.isNotBlank() }?.let { " · ${lang["by"]} $it" } ?: ""
                 Text(
                     "$qty$time$fedBy",
                     style = MaterialTheme.typography.bodySmall,

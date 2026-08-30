@@ -36,6 +36,7 @@ fun AddMealSheet(
     onDismiss: () -> Unit,
     onSave: (foodId: String, qty: Double, unit: String, slot: String, time: String, fedBy: String, isNew: Boolean) -> Unit,
 ) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     var foodId by remember { mutableStateOf(foods.firstOrNull()?.id) }
     var slot by remember { mutableStateOf(defaultSlotForNow()) }
     var time by remember { mutableStateOf(slotInfo(slot).defaultTime) }
@@ -51,16 +52,16 @@ fun AddMealSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("🍽️ Log a meal", style = MaterialTheme.typography.headlineSmall)
+            Text(lang["log_meal"], style = MaterialTheme.typography.headlineSmall)
 
             if (foods.isEmpty()) {
                 Text(
-                    "Add a food in the Foods tab first — every meal points at a food from the catalog.",
+                    lang["add_food_first"],
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                Text("Food", style = MaterialTheme.typography.labelLarge)
+                Text(lang["food"], style = MaterialTheme.typography.labelLarge)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(foods, key = { it.id }) { food ->
                         FilterChip(
@@ -72,7 +73,7 @@ fun AddMealSheet(
                     }
                 }
 
-                Text("Meal slot", style = MaterialTheme.typography.labelLarge)
+                Text(lang["meal_slot"], style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MealSlots.forEach { s ->
                         FilterChip(
@@ -81,7 +82,7 @@ fun AddMealSheet(
                                 slot = s.key
                                 time = s.defaultTime
                             },
-                            label = { Text("${s.emoji} ${s.label}") },
+                            label = { Text("${s.emoji} ${lang[s.key]}") },
                         )
                     }
                 }
@@ -90,21 +91,21 @@ fun AddMealSheet(
                     OutlinedTextField(
                         value = qty,
                         onValueChange = { qty = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("Quantity") },
+                        label = { Text(lang["quantity"]) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = unit,
                         onValueChange = { unit = it },
-                        label = { Text("Unit") },
+                        label = { Text(lang["unit"]) },
                         modifier = Modifier.weight(0.7f),
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = time,
                         onValueChange = { time = it },
-                        label = { Text("Time (HH:mm)") },
+                        label = { Text(lang["time"]) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                     )
@@ -113,7 +114,7 @@ fun AddMealSheet(
                 OutlinedTextField(
                     value = fedBy,
                     onValueChange = { fedBy = it },
-                    label = { Text("Fed by (optional)") },
+                    label = { Text(lang["fed_by"]) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -124,9 +125,9 @@ fun AddMealSheet(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("First time eating this?", style = MaterialTheme.typography.bodyLarge)
+                        Text(lang["first_time_q"], style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "New foods are prime suspects if tummy trouble follows.",
+                            lang["first_time_hint"],
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -142,7 +143,7 @@ fun AddMealSheet(
                     },
                     enabled = foodId != null,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Save meal") }
+                ) { Text(lang["save_meal"]) }
             }
         }
     }
@@ -163,12 +164,16 @@ private fun defaultSlotForNow(): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddFoodSheet(
+    puppies: List<com.bonzaa.app.data.Puppy>,
+    existing: com.bonzaa.app.data.FoodItem? = null,
     onDismiss: () -> Unit,
-    onSave: (name: String, brand: String, type: String) -> Unit,
+    onSave: (name: String, brand: String, type: String, usualPuppyId: String?) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var brand by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(FoodTypes.first()) }
+    val lang = com.bonzaa.app.ui.LocalLang.current
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    var brand by remember { mutableStateOf(existing?.brand ?: "") }
+    var type by remember { mutableStateOf(existing?.foodType ?: FoodTypes.first()) }
+    var usualPuppyId by remember { mutableStateOf(existing?.usualPuppyId) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -177,16 +182,16 @@ fun AddFoodSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("🦴 Add a food", style = MaterialTheme.typography.headlineSmall)
+            Text(if (existing == null) lang["add_food"] else lang["edit_food"], style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["name"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = brand, onValueChange = { brand = it },
-                label = { Text("Brand (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["brand_opt"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
-            Text("Type", style = MaterialTheme.typography.labelLarge)
+            Text(lang["type"], style = MaterialTheme.typography.labelLarge)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(FoodTypes) { t ->
                     FilterChip(
@@ -196,11 +201,30 @@ fun AddFoodSheet(
                     )
                 }
             }
+            if (puppies.isNotEmpty()) {
+                Text(lang["usually_for"], style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChip(
+                            selected = usualPuppyId == null,
+                            onClick = { usualPuppyId = null },
+                            label = { Text(lang["everyone"]) },
+                        )
+                    }
+                    items(puppies, key = { it.id }) { p ->
+                        FilterChip(
+                            selected = usualPuppyId == p.id,
+                            onClick = { usualPuppyId = p.id },
+                            label = { Text("🐶 ${p.name}") },
+                        )
+                    }
+                }
+            }
             Button(
-                onClick = { onSave(name.trim(), brand.trim(), type) },
+                onClick = { onSave(name.trim(), brand.trim(), type ?: "other", usualPuppyId) },
                 enabled = name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Save food") }
+            ) { Text(if (existing == null) lang["save_food"] else lang["save_changes"]) }
         }
     }
 }
@@ -213,6 +237,7 @@ fun AddPuppySheet(
     onDismiss: () -> Unit,
     onSave: (name: String, breed: String, birthDate: String?) -> Unit,
 ) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     var name by remember { mutableStateOf("") }
     var breed by remember { mutableStateOf("") }
     var birthDate by remember { mutableStateOf("") }
@@ -224,18 +249,18 @@ fun AddPuppySheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("🐶 Add a puppy", style = MaterialTheme.typography.headlineSmall)
+            Text(lang["add_puppy"], style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Name") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["name"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = breed, onValueChange = { breed = it },
-                label = { Text("Breed (optional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["breed_opt"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = birthDate, onValueChange = { birthDate = it },
-                label = { Text("Birth date (YYYY-MM-DD, optional)") },
+                label = { Text(lang["birth_opt"]) },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             Button(
@@ -245,14 +270,13 @@ fun AddPuppySheet(
                 },
                 enabled = name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Save puppy") }
+            ) { Text(lang["save_puppy"]) }
         }
     }
 }
 
-/* ---------- Log symptom ---------- */
+/* ---------- Log symptom / reaction ---------- */
 
-val SymptomOptions = listOf("vomiting", "diarrhea", "lethargy", "refusing food", "itching", "other")
 val SeverityOptions = listOf("mild", "moderate", "severe")
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -262,7 +286,8 @@ fun LogSymptomSheet(
     onDismiss: () -> Unit,
     onSave: (symptom: String, severity: String, onsetAt: String, notes: String) -> Unit,
 ) {
-    var symptom by remember { mutableStateOf(SymptomOptions.first()) }
+    val lang = com.bonzaa.app.ui.LocalLang.current
+    var symptom by remember { mutableStateOf(com.bonzaa.app.ui.SymptomKeys.first()) }
     var severity by remember { mutableStateOf("mild") }
     var onsetAt by remember {
         mutableStateOf(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
@@ -276,32 +301,32 @@ fun LogSymptomSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("🤒 Log a symptom", style = MaterialTheme.typography.headlineSmall)
+            Text(lang["log_symptom"], style = MaterialTheme.typography.headlineSmall)
             Text(
-                "For $puppyName — Bonzaa will immediately check what was eaten in the 2–48 hours before onset.",
+                lang.fmt("symptom_desc", puppyName),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text("Symptom", style = MaterialTheme.typography.labelLarge)
+            Text(lang["symptom"], style = MaterialTheme.typography.labelLarge)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(SymptomOptions) { s ->
-                    FilterChip(selected = symptom == s, onClick = { symptom = s }, label = { Text(s) })
+                items(com.bonzaa.app.ui.SymptomKeys) { s ->
+                    FilterChip(selected = symptom == s, onClick = { symptom = s }, label = { Text(lang.sym(s)) })
                 }
             }
-            Text("Severity", style = MaterialTheme.typography.labelLarge)
+            Text(lang["severity"], style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SeverityOptions.forEach { s ->
-                    FilterChip(selected = severity == s, onClick = { severity = s }, label = { Text(s) })
+                    FilterChip(selected = severity == s, onClick = { severity = s }, label = { Text(lang[s]) })
                 }
             }
             OutlinedTextField(
                 value = onsetAt, onValueChange = { onsetAt = it },
-                label = { Text("Onset (yyyy-MM-dd HH:mm)") },
+                label = { Text(lang["onset"]) },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = notes, onValueChange = { notes = it },
-                label = { Text("Notes (optional)") }, modifier = Modifier.fillMaxWidth(),
+                label = { Text(lang["notes_opt"]) }, modifier = Modifier.fillMaxWidth(),
             )
             Button(
                 onClick = {
@@ -314,7 +339,7 @@ fun LogSymptomSheet(
                     if (Regex("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$").matches(it)) "$it:00" else it
                 }),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Save & analyze") }
+            ) { Text(lang["save_analyze"]) }
         }
     }
 }

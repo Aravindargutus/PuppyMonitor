@@ -40,12 +40,13 @@ fun InsightsScreen(
     onOpenSymptom: (SymptomLog) -> Unit,
     onDismissAnalysis: () -> Unit,
 ) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.symptoms.isEmpty()) {
             EmptyState(
                 emoji = "💚",
-                title = "No incidents logged",
-                message = "Hopefully it stays that way! If ${state.selectedPuppy?.name ?: "your puppy"} ever feels unwell, log a symptom with the + button and Bonzaa will analyze recent meals for likely culprits.",
+                title = lang["no_incidents_title"],
+                message = lang.fmt("no_incidents_msg", state.selectedPuppy?.name ?: lang["your_puppy"]),
             )
         } else {
             LazyColumn(
@@ -57,7 +58,7 @@ fun InsightsScreen(
             ) {
                 item {
                     Text(
-                        "Tap an incident to see which foods were the likely cause.",
+                        lang["insights_hint"],
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 4.dp),
@@ -79,17 +80,17 @@ fun InsightsScreen(
                     .padding(start = 24.dp, end = 24.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("🔍 Suspect foods", style = MaterialTheme.typography.headlineSmall)
+                Text(lang["suspects_title"], style = MaterialTheme.typography.headlineSmall)
                 state.analysisFor?.let {
                     Text(
-                        "${it.symptom.replaceFirstChar(Char::uppercase)} · onset ${it.onsetAt.take(16)}",
+                        "${lang.sym(it.symptom).replaceFirstChar(Char::uppercase)} · ${lang["onset_at"]} ${it.onsetAt.take(16)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (analysis.suspects.isEmpty()) {
                     Text(
-                        "No meals were logged in the 2–48 hours before onset, so there is nothing to analyze. Keep logging every meal for better results.",
+                        lang["no_window_meals"],
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 } else {
@@ -99,7 +100,7 @@ fun InsightsScreen(
                     }
                 }
                 Text(
-                    "⚕️ ${analysis.note ?: "Correlation aid only — confirm with a veterinarian."}",
+                    "⚕️ ${lang["vet_note"]}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -110,6 +111,7 @@ fun InsightsScreen(
 
 @Composable
 private fun SymptomCard(symptom: SymptomLog, onClick: () -> Unit) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     val severityColor = when (symptom.severity) {
         "severe" -> DangerRed
         "moderate" -> Terracotta
@@ -126,11 +128,11 @@ private fun SymptomCard(symptom: SymptomLog, onClick: () -> Unit) {
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LetterAvatar(name = symptom.symptom, color = severityColor)
+            LetterAvatar(name = lang.sym(symptom.symptom), color = severityColor)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    symptom.symptom.replaceFirstChar(Char::uppercase),
+                    lang.sym(symptom.symptom).replaceFirstChar(Char::uppercase),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
@@ -140,7 +142,7 @@ private fun SymptomCard(symptom: SymptomLog, onClick: () -> Unit) {
                 )
             }
             TagChip(
-                text = (symptom.severity ?: "mild").uppercase(),
+                text = lang[symptom.severity ?: "mild"].uppercase(),
                 bg = severityColor.copy(alpha = 0.15f),
                 fg = severityColor,
             )
@@ -150,12 +152,13 @@ private fun SymptomCard(symptom: SymptomLog, onClick: () -> Unit) {
 
 @Composable
 private fun SuspectRow(rank: Int, suspect: Suspect, fraction: Float) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("#$rank", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text(suspect.name, style = MaterialTheme.typography.titleMedium)
             if (suspect.wasNewFood) {
-                TagChip("NEW FOOD", Honey.copy(alpha = 0.4f), MaterialTheme.colorScheme.onSurface)
+                TagChip(lang["new_food_badge"], Honey.copy(alpha = 0.4f), MaterialTheme.colorScheme.onSurface)
             }
             Spacer(Modifier.weight(1f))
             Text(
@@ -183,9 +186,9 @@ private fun SuspectRow(rank: Int, suspect: Suspect, fraction: Float) {
         }
         val details = buildList {
             suspect.brand?.takeIf { it.isNotBlank() }?.let { add(it) }
-            add("${suspect.feedingsInWindow.size}× in window")
-            if (suspect.precededPriorIncidents > 0) add("before ${suspect.precededPriorIncidents} earlier incident(s)")
-            add("${suspect.fedTimesInLast14Days}× in last 14 days")
+            add(lang.fmt("in_window", suspect.feedingsInWindow.size))
+            if (suspect.precededPriorIncidents > 0) add(lang.fmt("before_incidents", suspect.precededPriorIncidents))
+            add(lang.fmt("last14", suspect.fedTimesInLast14Days))
         }
         Text(
             details.joinToString(" · "),

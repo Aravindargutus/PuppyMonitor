@@ -46,7 +46,10 @@ import com.bonzaa.app.ui.screens.InsightsScreen
 import com.bonzaa.app.ui.screens.LogSymptomSheet
 import com.bonzaa.app.ui.screens.PuppiesScreen
 import com.bonzaa.app.ui.screens.TodayScreen
+import com.bonzaa.app.ui.Lang
+import com.bonzaa.app.ui.LocalLang
 import com.bonzaa.app.ui.theme.BonzaaTheme
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,20 +63,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val label: String, val icon: ImageVector) {
-    Today("Today", Icons.Default.Home),
-    Foods("Foods", Icons.Default.Restaurant),
-    Insights("Insights", Icons.Default.Favorite),
-    Puppies("Puppies", Icons.Default.Pets),
+private enum class Tab(val key: String, val icon: ImageVector) {
+    Today("tab_today", Icons.Default.Home),
+    Foods("tab_foods", Icons.Default.Restaurant),
+    Insights("tab_insights", Icons.Default.Favorite),
+    Puppies("tab_puppies", Icons.Default.Pets),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BonzaaApp(vm: AppViewModel = viewModel()) {
     val state by vm.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var langCode by remember {
+        mutableStateOf(context.getSharedPreferences("bonzaa", 0).getString("lang", "en") ?: "en")
+    }
+    val lang = remember(langCode) { Lang(langCode) }
     var tab by remember { mutableStateOf(Tab.Today) }
     var showAddMeal by remember { mutableStateOf(false) }
     var showAddFood by remember { mutableStateOf(false) }
+    var editFood by remember { mutableStateOf<com.bonzaa.app.data.FoodItem?>(null) }
     var showAddPuppy by remember { mutableStateOf(false) }
     var showLogSymptom by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -85,6 +94,7 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalLang provides lang) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -93,16 +103,27 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     Column {
                         Text("🐾 Bonzaa", style = MaterialTheme.typography.headlineSmall)
                         val sub = when (tab) {
-                            Tab.Today -> state.selectedPuppy?.let { "${it.name}'s meals" } ?: "Daily meals"
-                            Tab.Foods -> "Food catalog"
-                            Tab.Insights -> state.selectedPuppy?.let { "${it.name}'s health" } ?: "Health incidents"
-                            Tab.Puppies -> "Your pack"
+                            Tab.Today -> state.selectedPuppy?.let { lang.fmt("meals_of", it.name) } ?: lang["daily_meals"]
+                            Tab.Foods -> lang["food_catalog"]
+                            Tab.Insights -> state.selectedPuppy?.let { lang.fmt("health_of", it.name) } ?: lang["daily_meals"]
+                            Tab.Puppies -> lang["your_pack"]
                         }
                         Text(
                             sub,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                },
+                actions = {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            langCode = if (langCode == "en") "ta" else "en"
+                            context.getSharedPreferences("bonzaa", 0).edit().putString("lang", langCode).apply()
+                        },
+                        modifier = Modifier.padding(end = 12.dp),
+                    ) {
+                        Text(if (langCode == "en") "தமிழ்" else "English")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -119,8 +140,8 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                             tab = t
                             if (t == Tab.Insights) vm.refreshSymptoms()
                         },
-                        icon = { Icon(t.icon, contentDescription = t.label) },
-                        label = { Text(t.label) },
+                        icon = { Icon(t.icon, contentDescription = lang[t.key]) },
+                        label = { Text(lang[t.key]) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -163,7 +184,7 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     onSelectDate = vm::selectDate,
                     onDeleteFeeding = vm::deleteFeeding,
                 )
-                Tab.Foods -> FoodsScreen(state = state)
+                Tab.Foods -> FoodsScreen(state = state, onEdit = { editFood = it })
                 Tab.Insights -> InsightsScreen(
                     state = state,
                     onOpenSymptom = vm::loadSuspectsFor,
@@ -175,8 +196,16 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     }
 
     if (showAddMeal) {
+        // this puppy's usual foods first, then shared, then other puppies' foods
+        val sortedFoods = state.foods.sortedBy { f ->
+            when {
+                f.usualPuppyId == state.selectedPuppyId -> 0
+                f.usualPuppyId == null -> 1
+                else -> 2
+            }
+        }
         AddMealSheet(
-            foods = state.foods,
+            foods = sortedFoods,
             onDismiss = { showAddMeal = false },
             onSave = { foodId, qty, unit, slot, time, fedBy, isNew ->
                 vm.addFeeding(foodId, qty, unit, slot, time, fedBy, isNew)
@@ -186,10 +215,22 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     }
     if (showAddFood) {
         AddFoodSheet(
+            puppies = state.puppies,
             onDismiss = { showAddFood = false },
-            onSave = { name, brand, type ->
-                vm.addFood(name, brand, type)
+            onSave = { name, brand, type, usualPuppyId ->
+                vm.addFood(name, brand, type, usualPuppyId)
                 showAddFood = false
+            },
+        )
+    }
+    editFood?.let { food ->
+        AddFoodSheet(
+            puppies = state.puppies,
+            existing = food,
+            onDismiss = { editFood = null },
+            onSave = { name, brand, type, usualPuppyId ->
+                vm.updateFood(food.id, name, brand, type, usualPuppyId)
+                editFood = null
             },
         )
     }
@@ -204,7 +245,7 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     }
     if (showLogSymptom) {
         LogSymptomSheet(
-            puppyName = state.selectedPuppy?.name ?: "your puppy",
+            puppyName = state.selectedPuppy?.name ?: lang["your_puppy"],
             onDismiss = { showLogSymptom = false },
             onSave = { symptom, severity, onsetAt, notes ->
                 vm.logSymptom(symptom, severity, onsetAt, notes)
@@ -212,4 +253,5 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
             },
         )
     }
+    } // CompositionLocalProvider
 }

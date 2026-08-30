@@ -231,9 +231,26 @@ const routes = {
 			Name: body.name,
 			Brand: body.brand || '',
 			FoodType: body.food_type || 'other',
-			Notes: body.notes || ''
+			Notes: body.notes || '',
+			...(body.usual_puppy_id ? { UsualPuppyId: Number(body.usual_puppy_id) } : {})
 		});
 		sendJson(res, 201, { food: row });
+	},
+
+	'PUT /foods': async (app, req, res) => {
+		const body = await getBody(req);
+		if (!body.id) return sendJson(res, 400, { error: 'id is required' });
+		const patch = { ROWID: Number(body.id) };
+		if (body.name != null) patch.Name = body.name;
+		if (body.brand != null) patch.Brand = body.brand;
+		if (body.food_type != null) patch.FoodType = body.food_type;
+		if (body.notes != null) patch.Notes = body.notes;
+		// present-but-empty clears the tag; absent leaves it untouched
+		if ('usual_puppy_id' in body) {
+			patch.UsualPuppyId = body.usual_puppy_id ? Number(body.usual_puppy_id) : null;
+		}
+		const row = await app.datastore().table('FoodItems').updateRow(patch);
+		sendJson(res, 200, { food: row });
 	},
 
 	'GET /feedings': async (app, req, res, query) => {

@@ -61,6 +61,7 @@ data class FoodItem(
     @SerialName("Name") val name: String,
     @SerialName("Brand") val brand: String? = null,
     @SerialName("FoodType") val foodType: String? = null,
+    @SerialName("UsualPuppyId") val usualPuppyId: String? = null,
     @SerialName("Notes") val notes: String? = null,
 )
 
@@ -144,7 +145,17 @@ data class NewFood(
     val name: String,
     val brand: String? = null,
     @SerialName("food_type") val foodType: String? = null,
+    @SerialName("usual_puppy_id") val usualPuppyId: String? = null,
     val notes: String? = null,
+)
+
+@Serializable
+data class UpdateFood(
+    val id: String,
+    val name: String,
+    val brand: String? = null,
+    @SerialName("food_type") val foodType: String? = null,
+    @SerialName("usual_puppy_id") val usualPuppyId: String? = null,
 )
 
 @Serializable

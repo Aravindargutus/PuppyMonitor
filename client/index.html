@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bonzaa</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Nunito+Sans:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Nunito+Sans:wght@400;600;700;800&family=Noto+Sans+Tamil:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="main.css">
 </head>
 <body>
@@ -15,6 +15,7 @@
     <div class="brand">🐾 Bonzaa</div>
     <div class="brand-sub" id="topbarSub">Daily meals</div>
   </div>
+  <button class="lang-btn" id="langBtn" aria-label="Switch language">தமிழ்</button>
 </header>
 
 <main id="view" class="view"></main>
@@ -22,10 +23,10 @@
 <button class="fab" id="fab" aria-label="Add">+</button>
 
 <nav class="navbar">
-  <button class="nav-item sel" data-tab="today"><span class="ico">🏠</span>Today</button>
-  <button class="nav-item" data-tab="foods"><span class="ico">🍽️</span>Foods</button>
-  <button class="nav-item" data-tab="insights"><span class="ico">❤️</span>Insights</button>
-  <button class="nav-item" data-tab="puppies"><span class="ico">🐾</span>Puppies</button>
+  <button class="nav-item sel" data-tab="today"><span class="ico">🏠</span><span class="nav-label">Today</span></button>
+  <button class="nav-item" data-tab="foods"><span class="ico">🍽️</span><span class="nav-label">Foods</span></button>
+  <button class="nav-item" data-tab="insights"><span class="ico">❤️</span><span class="nav-label">Insights</span></button>
+  <button class="nav-item" data-tab="puppies"><span class="ico">🐾</span><span class="nav-label">Puppies</span></button>
 </nav>
 
 <div class="scrim" id="scrim" hidden></div>

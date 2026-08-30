@@ -11,6 +11,7 @@ import com.bonzaa.app.data.NewPuppy
 import com.bonzaa.app.data.NewSymptom
 import com.bonzaa.app.data.Puppy
 import com.bonzaa.app.data.SuspectAnalysis
+import com.bonzaa.app.data.UpdateFood
 import com.bonzaa.app.data.SymptomLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -119,8 +120,13 @@ class AppViewModel : ViewModel() {
         _state.value = _state.value.copy(puppies = puppies, selectedPuppyId = selected)
     }
 
-    fun addFood(name: String, brand: String, type: String) = launchSafe {
-        api.addFood(NewFood(name = name, brand = brand.ifBlank { null }, foodType = type))
+    fun addFood(name: String, brand: String, type: String, usualPuppyId: String?) = launchSafe {
+        api.addFood(NewFood(name = name, brand = brand.ifBlank { null }, foodType = type, usualPuppyId = usualPuppyId))
+        _state.value = _state.value.copy(foods = api.getFoods().foods)
+    }
+
+    fun updateFood(id: String, name: String, brand: String, type: String, usualPuppyId: String?) = launchSafe {
+        api.updateFood(UpdateFood(id = id, name = name, brand = brand.ifBlank { null }, foodType = type, usualPuppyId = usualPuppyId))
         _state.value = _state.value.copy(foods = api.getFoods().foods)
     }
 

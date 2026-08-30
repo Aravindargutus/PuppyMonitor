@@ -1,5 +1,6 @@
 package com.bonzaa.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,9 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.bonzaa.app.UiState
 import com.bonzaa.app.data.FoodItem
+import com.bonzaa.app.ui.theme.Honey
 import com.bonzaa.app.ui.theme.Sage
 import com.bonzaa.app.ui.theme.SageDeep
-import com.bonzaa.app.ui.theme.Terracotta
 
 val FoodTypes = listOf("kibble", "wet food", "treat", "human food", "supplement", "other")
 
@@ -36,12 +37,13 @@ fun foodEmoji(type: String?): String = when (type) {
 }
 
 @Composable
-fun FoodsScreen(state: UiState) {
+fun FoodsScreen(state: UiState, onEdit: (FoodItem) -> Unit) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
     if (state.foods.isEmpty()) {
         EmptyState(
             emoji = "🦴",
-            title = "No foods yet",
-            message = "Add every food, brand, and treat your puppies eat. Each meal you log points at one of these, which is what makes the suspect analysis possible.",
+            title = lang["no_foods_title"],
+            message = lang["no_foods_msg"],
         )
         return
     }
@@ -52,16 +54,29 @@ fun FoodsScreen(state: UiState) {
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        item {
+            Text(
+                lang["foods_hint"],
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         items(state.foods, key = { it.id }) { food ->
-            FoodCard(food)
+            FoodCard(
+                food = food,
+                puppyName = state.puppies.find { it.id == food.usualPuppyId }?.name,
+                onClick = { onEdit(food) },
+            )
         }
     }
 }
 
 @Composable
-private fun FoodCard(food: FoodItem) {
+private fun FoodCard(food: FoodItem, puppyName: String?, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
@@ -72,7 +87,19 @@ private fun FoodCard(food: FoodItem) {
             Text(foodEmoji(food.foodType), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(food.name, style = MaterialTheme.typography.titleMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(food.name, style = MaterialTheme.typography.titleMedium)
+                    if (puppyName != null) {
+                        TagChip(
+                            text = "🐶 ${puppyName.uppercase()}",
+                            bg = Honey.copy(alpha = 0.4f),
+                            fg = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
                 food.brand?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,
