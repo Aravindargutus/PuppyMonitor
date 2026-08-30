@@ -240,7 +240,7 @@ fun AddFoodSheet(
                     FilterChip(
                         selected = type == t,
                         onClick = { type = t },
-                        label = { Text("${foodEmoji(t)} $t") },
+                        label = { Text("${foodEmoji(t)} ${lang.ft(t)}") },
                     )
                 }
             }

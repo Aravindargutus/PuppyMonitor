@@ -109,7 +109,7 @@ private fun FoodCard(food: FoodItem, puppyName: String?, onClick: () -> Unit) {
                 }
             }
             TagChip(
-                text = (food.foodType ?: "other").uppercase(),
+                text = com.bonzaa.app.ui.LocalLang.current.ft(food.foodType).uppercase(),
                 bg = Sage.copy(alpha = 0.15f),
                 fg = SageDeep,
             )

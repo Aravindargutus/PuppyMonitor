@@ -123,14 +123,26 @@ object Strings {
         "refusing food" to "உணவு மறுப்பு", "itching" to "அரிப்பு", "crying" to "அழுகை / சிணுங்கல்",
         "other" to "மற்றவை",
     )
+
+    // Canonical food-type keys → localized labels.
+    val ftEn = mapOf(
+        "kibble" to "kibble", "wet food" to "wet food", "treat" to "treat",
+        "human food" to "human food", "supplement" to "supplement", "other" to "other",
+    )
+    val ftTa = mapOf(
+        "kibble" to "உலர் உணவு", "wet food" to "ஈர உணவு", "treat" to "சிற்றுண்டி",
+        "human food" to "வீட்டு உணவு", "supplement" to "ஊட்டச்சத்து", "other" to "மற்றவை",
+    )
 }
 
 class Lang(val code: String) {
     private val dict = if (code == "ta") Strings.ta else Strings.en
     private val syms = if (code == "ta") Strings.symTa else Strings.symEn
+    private val fts = if (code == "ta") Strings.ftTa else Strings.ftEn
     operator fun get(key: String): String = dict[key] ?: Strings.en[key] ?: key
     fun fmt(key: String, vararg args: Any?): String = get(key).format(*args)
     fun sym(key: String): String = syms[key] ?: Strings.symEn[key] ?: key
+    fun ft(key: String?): String = fts[key ?: "other"] ?: Strings.ftEn[key] ?: key ?: "other"
 }
 
 val LocalLang = staticCompositionLocalOf { Lang("en") }

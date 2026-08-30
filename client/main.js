@@ -57,6 +57,10 @@ const T = {
       'swollen face': 'swollen face', 'shivering': 'shivering', 'lethargy': 'lethargy',
       'refusing food': 'refusing food', 'itching': 'itching', 'crying': 'crying / whining', 'other': 'other',
     },
+    ft: {
+      'kibble': 'kibble', 'wet food': 'wet food', 'treat': 'treat',
+      'human food': 'human food', 'supplement': 'supplement', 'other': 'other',
+    },
   },
   ta: {
     daily_meals: 'தினசரி உணவுகள்', food_catalog: 'உணவு பட்டியல்', your_pack: 'உங்கள் குட்டிகள்',
@@ -108,6 +112,10 @@ const T = {
       'swollen face': 'முக வீக்கம்', 'shivering': 'நடுக்கம்', 'lethargy': 'சோர்வு',
       'refusing food': 'உணவு மறுப்பு', 'itching': 'அரிப்பு', 'crying': 'அழுகை / சிணுங்கல்', 'other': 'மற்றவை',
     },
+    ft: {
+      'kibble': 'உலர் உணவு', 'wet food': 'ஈர உணவு', 'treat': 'சிற்றுண்டி',
+      'human food': 'வீட்டு உணவு', 'supplement': 'ஊட்டச்சத்து', 'other': 'மற்றவை',
+    },
   },
 };
 
@@ -125,9 +133,12 @@ function t(key, ...args) {
   const v = (T[lang] && T[lang][key]) ?? T.en[key];
   return typeof v === 'function' ? v(...args) : v;
 }
-// Symptom values are stored canonically in English; display is localized.
+// Symptom and food-type values are stored canonically in English; display is localized.
 function symLabel(key) {
   return (T[lang].sym && T[lang].sym[key]) || T.en.sym[key] || key;
+}
+function ftLabel(key) {
+  return (T[lang].ft && T[lang].ft[key]) || T.en.ft[key] || key || 'other';
 }
 
 /* ---------- constants ---------- */
@@ -357,7 +368,7 @@ function renderFoods() {
           <div class="c-title">${esc(f.Name)} ${pup ? `<span class="badge">🐶 ${esc(pup).toUpperCase()}</span>` : ''}</div>
           ${f.Brand ? `<div class="c-sub">${esc(f.Brand)}</div>` : ''}
         </div>
-        <span class="tag sage">${esc((f.FoodType || 'other').toUpperCase())}</span>
+        <span class="tag sage">${esc(ftLabel(f.FoodType).toUpperCase())}</span>
       </div>`;
     }).join('')}`;
 }
@@ -533,7 +544,7 @@ function sheetAddFood(existing) {
     <div class="field" style="margin-top:14px"><label>${t('name')}</label><input id="fo-name" value="${f ? esc(f.Name) : ''}">${mic('fo-name')}</div>
     <div class="field"><label>${t('brand_opt')}</label><input id="fo-brand" value="${f ? esc(f.Brand || '') : ''}">${mic('fo-brand')}</div>
     <div class="lbl">${t('type')}</div>
-    ${chipGroup('ftype', FOOD_TYPES, f?.FoodType || 'kibble', (ty) => `${FOOD_EMOJI[ty]} ${esc(ty)}`)}
+    ${chipGroup('ftype', FOOD_TYPES, f?.FoodType || 'kibble', (ty) => `${FOOD_EMOJI[ty]} ${esc(ftLabel(ty))}`)}
     ${state.puppies.length ? `<div class="lbl">${t('usually_for')}</div>${puppyTagChips(f?.UsualPuppyId)}` : ''}
     <button class="cta" id="save-food" style="margin-top:16px">${f ? t('save_changes') : t('save_food')}</button>`);
   $('#save-food').onclick = async () => {
