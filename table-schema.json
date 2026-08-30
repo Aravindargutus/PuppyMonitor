@@ -1,0 +1,48 @@
+{
+  "_comment": "Data Store schema for the Bonzaa puppy food tracker. ROWID/CREATORID/CREATEDTIME/MODIFIEDTIME are auto-added by Catalyst — do not create them. Booleans are stored as 'true'/'false' strings at the API boundary.",
+  "tables": [
+    {
+      "table_name": "Puppies",
+      "columns": [
+        { "column_name": "Name", "data_type": "varchar", "max_length": 100, "is_mandatory": true },
+        { "column_name": "Breed", "data_type": "varchar", "max_length": 100 },
+        { "column_name": "BirthDate", "data_type": "date" },
+        { "column_name": "PhotoUrl", "data_type": "text" },
+        { "column_name": "Notes", "data_type": "text" }
+      ]
+    },
+    {
+      "table_name": "FoodItems",
+      "columns": [
+        { "column_name": "Name", "data_type": "varchar", "max_length": 150, "is_mandatory": true },
+        { "column_name": "Brand", "data_type": "varchar", "max_length": 100 },
+        { "column_name": "FoodType", "data_type": "varchar", "max_length": 50 },
+        { "column_name": "Notes", "data_type": "text" }
+      ]
+    },
+    {
+      "table_name": "FeedingLogs",
+      "columns": [
+        { "column_name": "PuppyId", "data_type": "bigint", "is_mandatory": true },
+        { "column_name": "FoodItemId", "data_type": "bigint", "is_mandatory": true },
+        { "column_name": "Quantity", "data_type": "double" },
+        { "column_name": "Unit", "data_type": "varchar", "max_length": 20 },
+        { "column_name": "MealSlot", "data_type": "varchar", "max_length": 20, "is_mandatory": true },
+        { "column_name": "FedAt", "data_type": "datetime", "is_mandatory": true },
+        { "column_name": "FedBy", "data_type": "varchar", "max_length": 100 },
+        { "column_name": "IsNewFood", "data_type": "boolean" },
+        { "column_name": "Notes", "data_type": "text" }
+      ]
+    },
+    {
+      "table_name": "SymptomLogs",
+      "columns": [
+        { "column_name": "PuppyId", "data_type": "bigint", "is_mandatory": true },
+        { "column_name": "Symptom", "data_type": "varchar", "max_length": 100, "is_mandatory": true },
+        { "column_name": "Severity", "data_type": "varchar", "max_length": 20 },
+        { "column_name": "OnsetAt", "data_type": "datetime", "is_mandatory": true },
+        { "column_name": "Notes", "data_type": "text" }
+      ]
+    }
+  ]
+}
