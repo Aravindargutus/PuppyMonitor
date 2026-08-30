@@ -18,3 +18,4 @@ android/app/*.iml
 android/captures/
 *.apk
 *.keystore
+android/keystore.properties
