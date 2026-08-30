@@ -50,6 +50,7 @@ const T = {
     t_need_food_name: 'Give the food a name', t_need_puppy_name: 'Give your puppy a name', t_need_onset: 'Pick a time',
     your_puppy: 'your puppy',
     reminder_missed: (s) => `⏰ ${s} — not logged yet. Tap to log now.`,
+    t_speech_err: "Couldn't hear that — try again", t_listening: 'Listening…',
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
       'black drool': 'black drool', 'excessive drooling': 'excessive drooling',
@@ -100,6 +101,7 @@ const T = {
     t_need_food_name: 'உணவுக்கு ஒரு பெயர் கொடுங்கள்', t_need_puppy_name: 'குட்டிக்கு ஒரு பெயர் கொடுங்கள்', t_need_onset: 'நேரத்தை தேர்வு செய்யவும்',
     your_puppy: 'உங்கள் குட்டி',
     reminder_missed: (s) => `⏰ ${s} — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.`,
+    t_speech_err: 'கேட்கவில்லை — மீண்டும் முயற்சிக்கவும்', t_listening: 'கேட்கிறது…',
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
       'black drool': 'கருப்பு உமிழ்நீர்', 'excessive drooling': 'அதிக உமிழ்நீர் வடிதல்',
@@ -420,6 +422,44 @@ function closeSheet() {
   $('#scrim').hidden = true;
 }
 
+/* ---------- speech to text ---------- */
+
+const SpeechAPI = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+// Mic button markup for a text input — empty string when the browser can't listen.
+function mic(inputId) {
+  return SpeechAPI ? `<button type="button" class="mic" data-mic="${inputId}" aria-label="voice input">🎤</button>` : '';
+}
+
+let activeRecognition = null;
+function listenInto(input, btn) {
+  if (!SpeechAPI) return;
+  if (activeRecognition) { try { activeRecognition.abort(); } catch (e) { /* ignore */ } }
+  const rec = new SpeechAPI();
+  activeRecognition = rec;
+  rec.lang = lang === 'ta' ? 'ta-IN' : 'en-IN';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  btn.classList.add('listening');
+  btn.textContent = '🔴';
+  const done = () => {
+    btn.classList.remove('listening');
+    btn.textContent = '🎤';
+    activeRecognition = null;
+  };
+  rec.onresult = (e) => {
+    const text = e.results[0]?.[0]?.transcript?.trim();
+    if (text) {
+      input.value = input.value ? `${input.value} ${text}` : text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  };
+  rec.onend = done;
+  rec.onerror = (e) => { done(); if (e.error !== 'aborted') toast(t('t_speech_err')); };
+  toast(t('t_listening'));
+  rec.start();
+}
+
 function chipGroup(name, options, selected, labelFn) {
   return `<div class="chips" data-chipgroup="${name}">${options.map((o) =>
     `<button type="button" class="chip ${o === selected ? 'sel' : ''}" data-val="${esc(o)}">${labelFn ? labelFn(o) : esc(o)}</button>`
@@ -452,7 +492,7 @@ function sheetAddMeal(presetSlot) {
       <div class="field" style="flex:0.6"><label>${t('unit')}</label><input id="f-unit" value="g"></div>
       <div class="field"><label>${t('time')}</label><input id="f-time" type="time" value="${SLOTS.find((s) => s.key === slot).time}"></div>
     </div>
-    <div class="field"><label>${t('fed_by')}</label><input id="f-fedby" placeholder="${t('fed_by_ph')}"></div>
+    <div class="field"><label>${t('fed_by')}</label><input id="f-fedby" placeholder="${t('fed_by_ph')}">${mic('f-fedby')}</div>
     <div class="switch-row">
       <div><div class="st">${t('first_time_q')}</div><div class="ss">${t('first_time_hint')}</div></div>
       <span class="switch"><input id="f-new" type="checkbox"><span class="knob"></span></span>
@@ -490,8 +530,8 @@ function sheetAddFood(existing) {
   const f = existing || null;
   openSheet(`
     <h3>${f ? t('edit_food') : t('add_food')}</h3>
-    <div class="field" style="margin-top:14px"><label>${t('name')}</label><input id="fo-name" value="${f ? esc(f.Name) : ''}"></div>
-    <div class="field"><label>${t('brand_opt')}</label><input id="fo-brand" value="${f ? esc(f.Brand || '') : ''}"></div>
+    <div class="field" style="margin-top:14px"><label>${t('name')}</label><input id="fo-name" value="${f ? esc(f.Name) : ''}">${mic('fo-name')}</div>
+    <div class="field"><label>${t('brand_opt')}</label><input id="fo-brand" value="${f ? esc(f.Brand || '') : ''}">${mic('fo-brand')}</div>
     <div class="lbl">${t('type')}</div>
     ${chipGroup('ftype', FOOD_TYPES, f?.FoodType || 'kibble', (ty) => `${FOOD_EMOJI[ty]} ${esc(ty)}`)}
     ${state.puppies.length ? `<div class="lbl">${t('usually_for')}</div>${puppyTagChips(f?.UsualPuppyId)}` : ''}
@@ -522,8 +562,8 @@ function sheetAddFood(existing) {
 function sheetAddPuppy() {
   openSheet(`
     <h3>${t('add_puppy')}</h3>
-    <div class="field" style="margin-top:14px"><label>${t('name')}</label><input id="p-name"></div>
-    <div class="field"><label>${t('breed_opt')}</label><input id="p-breed"></div>
+    <div class="field" style="margin-top:14px"><label>${t('name')}</label><input id="p-name">${mic('p-name')}</div>
+    <div class="field"><label>${t('breed_opt')}</label><input id="p-breed">${mic('p-breed')}</div>
     <div class="field"><label>${t('birth_opt')}</label><input id="p-birth" type="date"></div>
     <button class="cta" id="save-puppy">${t('save_puppy')}</button>`);
   $('#save-puppy').onclick = async () => {
@@ -549,7 +589,7 @@ function sheetLogSymptom() {
     <div class="lbl">${t('severity')}</div>
     ${chipGroup('sev', ['mild', 'moderate', 'severe'], 'mild', (k) => esc(t(k)))}
     <div class="field" style="margin-top:14px"><label>${t('onset')}</label><input id="s-onset" type="datetime-local" value="${nowLocal().replace(' ', 'T')}"></div>
-    <div class="field"><label>${t('notes_opt')}</label><input id="s-notes"></div>
+    <div class="field"><label>${t('notes_opt')}</label><input id="s-notes">${mic('s-notes')}</div>
     <button class="cta" id="save-symptom">${t('save_analyze')}</button>`);
   $('#save-symptom').onclick = async () => {
     const onset = ($('#s-onset').value || '').replace('T', ' ');
@@ -693,8 +733,14 @@ view.addEventListener('click', async (e) => {
   }
 });
 
-// chip groups inside sheets (single-select)
+// chip groups inside sheets (single-select) + mic buttons
 $('#sheet').addEventListener('click', (e) => {
+  const micBtn = e.target.closest('[data-mic]');
+  if (micBtn) {
+    const input = document.getElementById(micBtn.dataset.mic);
+    if (input) listenInto(input, micBtn);
+    return;
+  }
   const chip = e.target.closest('[data-chipgroup] .chip');
   if (!chip) return;
   chip.closest('[data-chipgroup]').querySelectorAll('.chip').forEach((c) => c.classList.remove('sel'));

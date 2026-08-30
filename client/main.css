@@ -171,6 +171,12 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   padding: 12px 14px; outline: none;
 }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--primary); }
+.field:has(.mic) input { padding-right: 48px; }
+.mic {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 18px; padding: 7px 9px; border-radius: 10px; line-height: 1;
+}
+.mic.listening { background: color-mix(in srgb, var(--primary) 18%, transparent); }
 .field label {
   position: absolute; top: -7px; left: 12px; background: var(--bg);
   padding: 0 5px; font-size: 11px; color: var(--muted);

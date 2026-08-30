@@ -27,6 +27,43 @@ import com.bonzaa.app.data.FoodItem
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
+/* ---------- speech to text ---------- */
+
+/**
+ * Mic button for text fields — launches Google's speech dialog in the app's
+ * language (ta-IN / en-IN) and appends the transcript via [onResult].
+ */
+@Composable
+fun MicButton(onResult: (String) -> Unit) {
+    val lang = com.bonzaa.app.ui.LocalLang.current
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        res.data
+            ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.let(onResult)
+    }
+    androidx.compose.material3.IconButton(onClick = {
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+            putExtra(
+                android.speech.RecognizerIntent.EXTRA_LANGUAGE,
+                if (lang.code == "ta") "ta-IN" else "en-IN",
+            )
+            putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, lang["speak_now"])
+        }
+        try {
+            launcher.launch(intent)
+        } catch (e: Exception) {
+            // No speech recognizer on this device — the field still works by typing.
+        }
+    }) { Text("🎤") }
+}
+
 /* ---------- Add meal ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -116,6 +153,7 @@ fun AddMealSheet(
                     value = fedBy,
                     onValueChange = { fedBy = it },
                     label = { Text(lang["fed_by"]) },
+                    trailingIcon = { MicButton { fedBy = it } },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -186,11 +224,15 @@ fun AddFoodSheet(
             Text(if (existing == null) lang["add_food"] else lang["edit_food"], style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text(lang["name"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["name"]) },
+                trailingIcon = { MicButton { name = it } },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = brand, onValueChange = { brand = it },
-                label = { Text(lang["brand_opt"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["brand_opt"]) },
+                trailingIcon = { MicButton { brand = it } },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             Text(lang["type"], style = MaterialTheme.typography.labelLarge)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -253,11 +295,15 @@ fun AddPuppySheet(
             Text(lang["add_puppy"], style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text(lang["name"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["name"]) },
+                trailingIcon = { MicButton { name = it } },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = breed, onValueChange = { breed = it },
-                label = { Text(lang["breed_opt"]) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(lang["breed_opt"]) },
+                trailingIcon = { MicButton { breed = it } },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
             )
             OutlinedTextField(
                 value = birthDate, onValueChange = { birthDate = it },
@@ -327,7 +373,9 @@ fun LogSymptomSheet(
             )
             OutlinedTextField(
                 value = notes, onValueChange = { notes = it },
-                label = { Text(lang["notes_opt"]) }, modifier = Modifier.fillMaxWidth(),
+                label = { Text(lang["notes_opt"]) },
+                trailingIcon = { MicButton { spoken -> notes = if (notes.isBlank()) spoken else "$notes $spoken" } },
+                modifier = Modifier.fillMaxWidth(),
             )
             Button(
                 onClick = {

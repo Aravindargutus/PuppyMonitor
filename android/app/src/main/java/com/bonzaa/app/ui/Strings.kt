@@ -55,6 +55,7 @@ object Strings {
         "reminder_missed" to "⏰ %s — not logged yet. Tap to log now.",
         "notif_title" to "🐾 Bonzaa — feeding time!",
         "notif_body" to "%s meal is not logged yet. Feed your puppy and log it.",
+        "speak_now" to "Speak now",
     )
 
     val ta = mapOf(
@@ -104,6 +105,7 @@ object Strings {
         "reminder_missed" to "⏰ %s — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.",
         "notif_title" to "🐾 Bonzaa — உணவு நேரம்!",
         "notif_body" to "%s உணவு இன்னும் பதிவாகவில்லை. குட்டிக்கு உணவு கொடுத்து பதிவு செய்யவும்.",
+        "speak_now" to "இப்போது பேசுங்கள்",
     )
 
     // Canonical symptom/reaction keys → localized labels.
