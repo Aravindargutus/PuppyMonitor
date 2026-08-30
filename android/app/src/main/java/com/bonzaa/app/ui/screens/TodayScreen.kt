@@ -42,6 +42,7 @@ fun TodayScreen(
     onSelectPuppy: (String) -> Unit,
     onSelectDate: (LocalDate) -> Unit,
     onDeleteFeeding: (String) -> Unit,
+    onRemind: (String) -> Unit,
 ) {
     val lang = com.bonzaa.app.ui.LocalLang.current
     val headerFmt = DateTimeFormatter.ofPattern("EEE, d MMM")
@@ -104,6 +105,34 @@ fun TodayScreen(
         }
 
         val bySlot = state.feedings.groupBy { it.mealSlot }
+
+        // Missed-meal reminder: a slot's time passed today and nothing is logged.
+        if (state.date == LocalDate.now()) {
+            val nowTime = java.time.LocalTime.now()
+            val missed = MealSlots.filter { s ->
+                java.time.LocalTime.parse(s.defaultTime) <= nowTime && bySlot[s.key].isNullOrEmpty()
+            }
+            if (missed.isNotEmpty()) {
+                val names = missed.joinToString(", ") { "${it.emoji} ${lang[it.key]}" }
+                Card(
+                    onClick = { onRemind(missed.first().key) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Honey.copy(alpha = 0.35f),
+                    ),
+                ) {
+                    Text(
+                        lang.fmt("reminder_missed", names),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        ),
+                        modifier = Modifier.padding(14.dp),
+                    )
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

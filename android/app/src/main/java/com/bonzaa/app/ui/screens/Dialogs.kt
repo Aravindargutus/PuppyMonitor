@@ -33,12 +33,13 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun AddMealSheet(
     foods: List<FoodItem>,
+    presetSlot: String? = null,
     onDismiss: () -> Unit,
     onSave: (foodId: String, qty: Double, unit: String, slot: String, time: String, fedBy: String, isNew: Boolean) -> Unit,
 ) {
     val lang = com.bonzaa.app.ui.LocalLang.current
     var foodId by remember { mutableStateOf(foods.firstOrNull()?.id) }
-    var slot by remember { mutableStateOf(defaultSlotForNow()) }
+    var slot by remember { mutableStateOf(presetSlot ?: defaultSlotForNow()) }
     var time by remember { mutableStateOf(slotInfo(slot).defaultTime) }
     var qty by remember { mutableStateOf("") }
     var unit by remember { mutableStateOf("g") }

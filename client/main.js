@@ -49,6 +49,7 @@ const T = {
     t_welcome: (n) => `Welcome, ${n}! 🐾`, t_meal_deleted: 'Meal deleted', t_removed: (n) => `${n} removed`,
     t_need_food_name: 'Give the food a name', t_need_puppy_name: 'Give your puppy a name', t_need_onset: 'Pick a time',
     your_puppy: 'your puppy',
+    reminder_missed: (s) => `⏰ ${s} — not logged yet. Tap to log now.`,
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
       'black drool': 'black drool', 'excessive drooling': 'excessive drooling',
@@ -98,6 +99,7 @@ const T = {
     t_welcome: (n) => `வரவேற்கிறோம், ${n}! 🐾`, t_meal_deleted: 'நீக்கப்பட்டது', t_removed: (n) => `${n} நீக்கப்பட்டது`,
     t_need_food_name: 'உணவுக்கு ஒரு பெயர் கொடுங்கள்', t_need_puppy_name: 'குட்டிக்கு ஒரு பெயர் கொடுங்கள்', t_need_onset: 'நேரத்தை தேர்வு செய்யவும்',
     your_puppy: 'உங்கள் குட்டி',
+    reminder_missed: (s) => `⏰ ${s} — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.`,
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
       'black drool': 'கருப்பு உமிழ்நீர்', 'excessive drooling': 'அதிக உமிழ்நீர் வடிதல்',
@@ -107,8 +109,16 @@ const T = {
   },
 };
 
+// Language: URL ?lang=ta wins (and persists), then the saved choice,
+// then the browser language — so a Tamil phone starts in Tamil.
 let lang = 'en';
-try { lang = localStorage.getItem('bonzaa_lang') || 'en'; } catch (e) { /* private mode */ }
+try {
+  const qLang = new URLSearchParams(location.search).get('lang');
+  const stored = localStorage.getItem('bonzaa_lang');
+  lang = (qLang === 'ta' || qLang === 'en') ? qLang
+    : stored || ((navigator.language || '').startsWith('ta') ? 'ta' : 'en');
+  if (qLang === 'ta' || qLang === 'en') localStorage.setItem('bonzaa_lang', lang);
+} catch (e) { /* private mode */ }
 function t(key, ...args) {
   const v = (T[lang] && T[lang][key]) ?? T.en[key];
   return typeof v === 'function' ? v(...args) : v;
@@ -294,6 +304,17 @@ function renderToday() {
   const bySlot = {};
   for (const f of state.feedings) (bySlot[f.MealSlot] ||= []).push(f);
 
+  // Missed-meal reminder: slots whose time has passed today with nothing logged.
+  let reminder = '';
+  if (state.date === todayStr()) {
+    const nowHM = new Date().toTimeString().slice(0, 5);
+    const missed = SLOTS.filter((s) => s.time <= nowHM && !(bySlot[s.key] || []).length);
+    if (missed.length) {
+      const names = missed.map((s) => `${s.emoji} ${t(s.key)}`).join(', ');
+      reminder = `<button class="reminder" data-remind-slot="${missed[0].key}">${t('reminder_missed', names)}</button>`;
+    }
+  }
+
   view.innerHTML = `
     ${puppyChips()}
     <div class="datenav">
@@ -301,6 +322,7 @@ function renderToday() {
       <span class="label">${prettyDate(state.date)}</span>
       <button data-shift="1" aria-label="next" ${state.date >= todayStr() ? 'disabled' : ''}>›</button>
     </div>
+    ${reminder}
     ${SLOTS.map((s) => {
       const meals = bySlot[s.key] || [];
       return `
@@ -407,13 +429,13 @@ function chipVal(name) {
   return document.querySelector(`[data-chipgroup="${name}"] .chip.sel`)?.dataset.val;
 }
 
-function sheetAddMeal() {
+function sheetAddMeal(presetSlot) {
   if (!state.foods.length) {
     openSheet(`<h3>${t('log_meal')}</h3><p class="s-sub">${t('add_food_first')}</p>`);
     return;
   }
   const hour = new Date().getHours();
-  const slot = hour < 11 ? 'morning' : hour < 15 ? 'noon' : hour < 19 ? 'evening' : 'night';
+  const slot = presetSlot || (hour < 11 ? 'morning' : hour < 15 ? 'noon' : hour < 19 ? 'evening' : 'night');
   // this puppy's usual foods first, then shared, then other puppies' foods
   const rankFood = (f) => f.UsualPuppyId === state.selectedPuppyId ? 0 : !f.UsualPuppyId ? 1 : 2;
   const sortedFoods = [...state.foods].sort((a, b) => rankFood(a) - rankFood(b));
@@ -623,6 +645,9 @@ $('#fab').addEventListener('click', () => {
 $('#scrim').addEventListener('click', closeSheet);
 
 view.addEventListener('click', async (e) => {
+  const remind = e.target.closest('[data-remind-slot]');
+  if (remind) return sheetAddMeal(remind.dataset.remindSlot);
+
   const puppyChip = e.target.closest('[data-puppy]');
   if (puppyChip) {
     state.selectedPuppyId = puppyChip.dataset.puppy;

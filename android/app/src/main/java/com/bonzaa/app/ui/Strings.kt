@@ -52,6 +52,9 @@ object Strings {
         "remove_q" to "Remove %s?",
         "remove_msg" to "This removes the puppy from Bonzaa. Meal and symptom history stays in the database but will no longer be shown.",
         "cancel" to "Cancel", "remove" to "Remove", "your_puppy" to "your puppy",
+        "reminder_missed" to "⏰ %s — not logged yet. Tap to log now.",
+        "notif_title" to "🐾 Bonzaa — feeding time!",
+        "notif_body" to "%s meal is not logged yet. Feed your puppy and log it.",
     )
 
     val ta = mapOf(
@@ -98,6 +101,9 @@ object Strings {
         "remove_q" to "%s-ஐ நீக்கவா?",
         "remove_msg" to "இது குட்டியை Bonzaa-விலிருந்து நீக்கும். உணவு மற்றும் அறிகுறி வரலாறு தரவுத்தளத்தில் இருக்கும், ஆனால் காட்டப்படாது.",
         "cancel" to "ரத்து", "remove" to "நீக்கு", "your_puppy" to "உங்கள் குட்டி",
+        "reminder_missed" to "⏰ %s — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.",
+        "notif_title" to "🐾 Bonzaa — உணவு நேரம்!",
+        "notif_body" to "%s உணவு இன்னும் பதிவாகவில்லை. குட்டிக்கு உணவு கொடுத்து பதிவு செய்யவும்.",
     )
 
     // Canonical symptom/reaction keys → localized labels.

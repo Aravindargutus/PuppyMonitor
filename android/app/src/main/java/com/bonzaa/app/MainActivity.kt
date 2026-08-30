@@ -52,9 +52,23 @@ import com.bonzaa.app.ui.theme.BonzaaTheme
 import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
+
+    private val notifPermission =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        Reminders.ensureChannel(this)
+        Reminders.scheduleAll(this)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         setContent {
             BonzaaTheme {
                 BonzaaApp()
@@ -76,11 +90,14 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     var langCode by remember {
-        mutableStateOf(context.getSharedPreferences("bonzaa", 0).getString("lang", "en") ?: "en")
+        // No saved choice yet → follow the phone's language, so a Tamil phone starts in Tamil.
+        val stored = context.getSharedPreferences("bonzaa", 0).getString("lang", null)
+        mutableStateOf(stored ?: if (java.util.Locale.getDefault().language == "ta") "ta" else "en")
     }
     val lang = remember(langCode) { Lang(langCode) }
     var tab by remember { mutableStateOf(Tab.Today) }
     var showAddMeal by remember { mutableStateOf(false) }
+    var addMealSlot by remember { mutableStateOf<String?>(null) }
     var showAddFood by remember { mutableStateOf(false) }
     var editFood by remember { mutableStateOf<com.bonzaa.app.data.FoodItem?>(null) }
     var showAddPuppy by remember { mutableStateOf(false) }
@@ -183,6 +200,10 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     onSelectPuppy = vm::selectPuppy,
                     onSelectDate = vm::selectDate,
                     onDeleteFeeding = vm::deleteFeeding,
+                    onRemind = { slotKey ->
+                        addMealSlot = slotKey
+                        showAddMeal = true
+                    },
                 )
                 Tab.Foods -> FoodsScreen(state = state, onEdit = { editFood = it })
                 Tab.Insights -> InsightsScreen(
@@ -206,10 +227,12 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
         }
         AddMealSheet(
             foods = sortedFoods,
-            onDismiss = { showAddMeal = false },
+            presetSlot = addMealSlot,
+            onDismiss = { showAddMeal = false; addMealSlot = null },
             onSave = { foodId, qty, unit, slot, time, fedBy, isNew ->
                 vm.addFeeding(foodId, qty, unit, slot, time, fedBy, isNew)
                 showAddMeal = false
+                addMealSlot = null
             },
         )
     }
