@@ -51,6 +51,18 @@ const T = {
     your_puppy: 'your puppy',
     reminder_missed: (s) => `⏰ ${s} — not logged yet. Tap to log now.`,
     t_speech_err: "Couldn't hear that — try again", t_listening: 'Listening…',
+    auth_tagline: 'Puppy meals, morning to night',
+    auth_checking: 'Checking your sign-in…',
+    auth_signin: 'Sign in to continue',
+    auth_signup: 'Create your Bonzaa account',
+    auth_to_signup: 'New here? Create an account',
+    auth_to_signin: 'Already have an account? Sign in',
+    auth_unavailable: 'Sign-in is loading. If this stays, refresh the page.',
+    t_signed_out: 'Signed out',
+    su_first: 'First name', su_last: 'Last name', su_email: 'Email',
+    su_submit: 'Create account', su_sending: 'Creating your account…',
+    su_ok: 'Almost done! Check your email and click the confirmation link, then sign in.',
+    su_need: 'Enter your name and email',
     delete_food: 'Delete this food',
     delete_food_q: (n) => `Delete ${n}?`,
     delete_food_msg: 'Past meals of this food will show as unknown food, and it will drop out of old suspect reports. This cannot be undone.',
@@ -110,6 +122,18 @@ const T = {
     your_puppy: 'உங்கள் குட்டி',
     reminder_missed: (s) => `⏰ ${s} — இன்னும் பதிவாகவில்லை. இப்போது பதிவு செய்ய தட்டவும்.`,
     t_speech_err: 'கேட்கவில்லை — மீண்டும் முயற்சிக்கவும்', t_listening: 'கேட்கிறது…',
+    auth_tagline: 'குட்டியின் உணவு — காலை முதல் இரவு வரை',
+    auth_checking: 'உள்நுழைவு சரிபார்க்கிறது…',
+    auth_signin: 'தொடர உள்நுழையவும்',
+    auth_signup: 'Bonzaa கணக்கை உருவாக்கவும்',
+    auth_to_signup: 'புதியவரா? கணக்கை உருவாக்கவும்',
+    auth_to_signin: 'ஏற்கனவே கணக்கு உள்ளதா? உள்நுழையவும்',
+    auth_unavailable: 'உள்நுழைவு ஏற்றப்படுகிறது. தொடர்ந்தால் பக்கத்தை புதுப்பிக்கவும்.',
+    t_signed_out: 'வெளியேறிவிட்டீர்கள்',
+    su_first: 'முதல் பெயர்', su_last: 'கடைசி பெயர்', su_email: 'மின்னஞ்சல்',
+    su_submit: 'கணக்கை உருவாக்கு', su_sending: 'கணக்கு உருவாக்கப்படுகிறது…',
+    su_ok: 'கிட்டத்தட்ட முடிந்தது! உங்கள் மின்னஞ்சலில் உள்ள உறுதிப்படுத்தல் இணைப்பை அழுத்திய பிறகு உள்நுழையவும்.',
+    su_need: 'உங்கள் பெயர் மற்றும் மின்னஞ்சலை உள்ளிடவும்',
     delete_food: 'இந்த உணவை நீக்கு',
     delete_food_q: (n) => `${n}-ஐ நீக்கவா?`,
     delete_food_msg: 'இந்த உணவின் பழைய உணவு பதிவுகள் தெரியாத உணவாக காட்டப்படும்; பழைய சந்தேக அறிக்கைகளிலிருந்தும் நீங்கும். இதை மீட்டெடுக்க முடியாது.',
@@ -247,8 +271,13 @@ async function call(path, opts = {}) {
   try {
     const res = await fetch(API + path, {
       ...opts,
+      credentials: 'include', // forward the Catalyst auth cookie
       headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
     });
+    if (res.status === 401) {
+      showAuthGate();
+      throw new Error(t('auth_signin'));
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
@@ -794,4 +823,129 @@ $('#sheet').addEventListener('click', (e) => {
   }
 });
 
-loadCore();
+/* ---------- authentication gate ---------- */
+
+let authMode = 'signin'; // 'signin' | 'signup'
+const authWidgetRendered = { signin: false, signup: false };
+
+// init.js loads async; wait for catalyst.auth before touching it.
+function sdkReady() {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = setInterval(() => {
+      if (window.catalyst && window.catalyst.auth && window.catalyst.auth.signIn) {
+        clearInterval(tick);
+        resolve(true);
+      } else if (Date.now() - started > 12000) {
+        clearInterval(tick);
+        resolve(false);
+      }
+    }, 100);
+  });
+}
+
+function paintAuthLabels() {
+  $('#authTagline').textContent = t('auth_tagline');
+  $('#authLangBtn').textContent = lang === 'en' ? 'தமிழ்' : 'English';
+  $('#authSwitch').textContent = authMode === 'signin' ? t('auth_to_signup') : t('auth_to_signin');
+  $('#authStatus').textContent = authMode === 'signin' ? t('auth_signin') : t('auth_signup');
+  $('#su-first-l').textContent = t('su_first');
+  $('#su-last-l').textContent = t('su_last');
+  $('#su-email-l').textContent = t('su_email');
+  $('#su-submit').textContent = t('su_submit');
+}
+
+function renderAuthWidget() {
+  const isSignIn = authMode === 'signin';
+  $('#login-container').hidden = !isSignIn;
+  $('#signup-container').hidden = isSignIn;
+  paintAuthLabels();
+  // Only the sign-in widget is SDK-rendered; signup is our own form because
+  // catalyst.auth.signUp() takes a user object, not a container id.
+  try {
+    if (isSignIn && !authWidgetRendered.signin) {
+      catalyst.auth.signIn('login-container', { login_redirect: '/app/index.html' });
+      authWidgetRendered.signin = true;
+    }
+  } catch (e) {
+    $('#authStatus').textContent = t('auth_unavailable');
+  }
+}
+
+$('#signup-container').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const first = $('#su-first').value.trim();
+  const last = $('#su-last').value.trim();
+  const email = $('#su-email').value.trim();
+  const msg = $('#su-msg');
+  if (!first || !email) {
+    msg.className = 'auth-msg err';
+    msg.textContent = t('su_need');
+    return;
+  }
+  msg.className = 'auth-msg';
+  msg.textContent = t('su_sending');
+  try {
+    await catalyst.auth.signUp({
+      first_name: first,
+      last_name: last || first,
+      email_id: email,
+      platform_type: 'web',
+      redirect_url: window.location.origin + '/app/index.html',
+    });
+    msg.className = 'auth-msg ok';
+    msg.textContent = t('su_ok');
+  } catch (err) {
+    msg.className = 'auth-msg err';
+    msg.textContent = (err && (err.message || err.msg)) || String(err);
+  }
+});
+
+function showAuthGate() {
+  $('#appShell').hidden = true;
+  $('#authScreen').hidden = false;
+  $('#authSwitch').hidden = false;
+  renderAuthWidget();
+}
+
+function showApp() {
+  $('#authScreen').hidden = true;
+  $('#appShell').hidden = false;
+  loadCore();
+}
+
+$('#authSwitch').addEventListener('click', () => {
+  authMode = authMode === 'signin' ? 'signup' : 'signin';
+  renderAuthWidget();
+});
+
+$('#authLangBtn').addEventListener('click', () => {
+  lang = lang === 'en' ? 'ta' : 'en';
+  try { localStorage.setItem('bonzaa_lang', lang); } catch (e) { /* private mode */ }
+  paintAuthLabels();
+});
+
+$('#signOutBtn').addEventListener('click', () => {
+  try {
+    catalyst.auth.signOut(window.location.origin + '/app/index.html');
+  } catch (e) {
+    toast(e.message || 'Sign out failed');
+  }
+});
+
+async function boot() {
+  $('#authStatus').textContent = t('auth_checking');
+  const ready = await sdkReady();
+  if (!ready) {
+    $('#authStatus').textContent = t('auth_unavailable');
+    return;
+  }
+  try {
+    await catalyst.auth.isUserAuthenticated(); // resolves with user, rejects 401
+    showApp();
+  } catch (e) {
+    showAuthGate();
+  }
+}
+
+boot();
