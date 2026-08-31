@@ -941,7 +941,12 @@ async function boot() {
     return;
   }
   try {
-    await catalyst.auth.isUserAuthenticated(); // resolves with user, rejects 401
+    // Resolves with the user, rejects on 401. Race a timeout so a stalled
+    // call falls back to the login screen instead of a dead "checking…" page.
+    await Promise.race([
+      catalyst.auth.isUserAuthenticated(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('auth check timed out')), 10000)),
+    ]);
     showApp();
   } catch (e) {
     showAuthGate();

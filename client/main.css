@@ -36,6 +36,9 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* The `hidden` attribute must win over any author display rule —
+   .auth-screen sets display:flex, which otherwise keeps it on screen. */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   background: var(--bg);
