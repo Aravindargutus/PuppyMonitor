@@ -71,5 +71,6 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.catalyst.android.sdk)
     debugImplementation(libs.compose.ui.tooling)
 }

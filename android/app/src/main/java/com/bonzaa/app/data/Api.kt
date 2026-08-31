@@ -79,6 +79,19 @@ object ApiClient {
         val client = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            // Attach the Catalyst OAuth token so the function accepts the call.
+            // Header format matches what the Catalyst SDK sends internally.
+            .addInterceptor { chain ->
+                val token = CatalystAuth.blockingAccessToken()
+                val request = if (token.isNullOrBlank()) {
+                    chain.request()
+                } else {
+                    chain.request().newBuilder()
+                        .header("Authorization", "Zoho-oauthtoken $token")
+                        .build()
+                }
+                chain.proceed(request)
+            }
             .addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             })

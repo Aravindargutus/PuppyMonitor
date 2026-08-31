@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        com.bonzaa.app.data.CatalystAuth.init(this)
         Reminders.ensureChannel(this)
         Reminders.scheduleAll(this)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
@@ -111,7 +112,24 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
         }
     }
 
+    var signedIn by remember { mutableStateOf(com.bonzaa.app.data.CatalystAuth.isSignedIn()) }
+
+    LaunchedEffect(signedIn) {
+        if (signedIn) vm.refreshAll()
+    }
+
     androidx.compose.runtime.CompositionLocalProvider(LocalLang provides lang) {
+    if (!signedIn) {
+        com.bonzaa.app.ui.screens.LoginScreen(
+            langCode = langCode,
+            onToggleLang = {
+                langCode = if (langCode == "en") "ta" else "en"
+                context.getSharedPreferences("bonzaa", 0).edit().putString("lang", langCode).apply()
+            },
+            onSignedIn = { signedIn = true },
+        )
+        return@CompositionLocalProvider
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -142,6 +160,14 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     ) {
                         Text(if (langCode == "en") "தமிழ்" else "English")
                     }
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            com.bonzaa.app.data.CatalystAuth.logout { ok, _ ->
+                                if (ok) signedIn = false
+                            }
+                        },
+                        modifier = Modifier.padding(end = 4.dp),
+                    ) { Text(lang["sign_out"]) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,

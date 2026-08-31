@@ -59,6 +59,13 @@ object Strings {
         "delete_food" to "Delete this food",
         "delete_food_q" to "Delete %s?",
         "delete_food_msg" to "Past meals of this food will show as unknown food, and it will drop out of old suspect reports. This cannot be undone.",
+        "auth_tagline" to "Puppy meals, morning to night",
+        "auth_signin" to "Sign in to continue",
+        "auth_signin_btn" to "Sign in",
+        "auth_signing_in" to "Signing in…",
+        "auth_hint" to "Use your Google account or your Bonzaa email.",
+        "auth_failed" to "Sign-in failed. Please try again.",
+        "sign_out" to "Sign out",
     )
 
     val ta = mapOf(
@@ -112,6 +119,13 @@ object Strings {
         "delete_food" to "இந்த உணவை நீக்கு",
         "delete_food_q" to "%s-ஐ நீக்கவா?",
         "delete_food_msg" to "இந்த உணவின் பழைய உணவு பதிவுகள் தெரியாத உணவாக காட்டப்படும்; பழைய சந்தேக அறிக்கைகளிலிருந்தும் நீங்கும். இதை மீட்டெடுக்க முடியாது.",
+        "auth_tagline" to "குட்டியின் உணவு — காலை முதல் இரவு வரை",
+        "auth_signin" to "தொடர உள்நுழையவும்",
+        "auth_signin_btn" to "உள்நுழை",
+        "auth_signing_in" to "உள்நுழைகிறது…",
+        "auth_hint" to "உங்கள் Google கணக்கு அல்லது Bonzaa மின்னஞ்சலை பயன்படுத்தவும்.",
+        "auth_failed" to "உள்நுழைவு தோல்வி. மீண்டும் முயற்சிக்கவும்.",
+        "sign_out" to "வெளியேறு",
     )
 
     // Canonical symptom/reaction keys → localized labels.

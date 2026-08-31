@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Bonzaa</string>
+    <!-- Must equal the Redirect URL of the Catalyst mobile SDK package, plus "://" -->
+    <string name="url_scheme">bonzaa://</string>
 </resources>

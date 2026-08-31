@@ -44,9 +44,8 @@ class AppViewModel : ViewModel() {
     private val api = ApiClient.api
     private val dateFmt = DateTimeFormatter.ISO_LOCAL_DATE
 
-    init {
-        refreshAll()
-    }
+    // No auto-refresh: the first load is triggered once the user is signed in,
+    // otherwise the call fires before there is a token and 401s.
 
     private fun launchSafe(block: suspend () -> Unit) {
         viewModelScope.launch {

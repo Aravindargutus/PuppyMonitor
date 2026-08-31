@@ -19,3 +19,7 @@ android/captures/
 *.apk
 *.keystore
 android/keystore.properties
+
+# Catalyst mobile SDK config — contains the OAuth clientSecret.
+# Download per-developer from Console > Mobile SDK > your package.
+android/app/src/main/assets/app_configuration_*.properties
