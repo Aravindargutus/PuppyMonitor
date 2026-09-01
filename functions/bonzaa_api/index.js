@@ -342,18 +342,43 @@ const routes = {
 	}
 };
 
+/*
+ * Application-level auth gate. Catalyst Security Rules are managed server-side
+ * (not in catalyst-config.json), so we enforce access in code here for a
+ * reliable, deployable guarantee: an anonymous request carries no Catalyst
+ * user session, so getCurrentUser() fails and we reject with 401. Requests
+ * from the logged-in web client (session cookie) and the Android client
+ * (Zoho-oauthtoken) resolve to a real user and pass. Data operations still
+ * run at admin scope so App User table permissions don't block them.
+ */
+async function isAuthenticated(req) {
+	try {
+		const userApp = catalyst.initialize(req); // user scope
+		const user = await userApp.userManagement().getCurrentUser();
+		return !!(user && user.user_id);
+	} catch (e) {
+		return false;
+	}
+}
+
 module.exports = async (req, res) => {
 	const url = new URL(req.url, 'http://localhost');
 	const key = `${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`;
 	const handler = routes[key];
 	if (!handler) {
-		return sendJson(res, 404, { error: `No route for ${key}` });
+		return sendJson(res, 404, { error: 'Not found' });
+	}
+	// /health stays public for uptime checks; every data route requires auth.
+	if (key !== 'GET /health' && !(await isAuthenticated(req))) {
+		return sendJson(res, 401, { error: 'Authentication required' });
 	}
 	try {
 		const app = catalyst.initialize(req, { scope: 'admin' });
 		await handler(app, req, res, url.searchParams);
 	} catch (err) {
+		// Log details server-side; return a generic message so schema/internal
+		// details are not disclosed to clients.
 		console.error('bonzaa_api error:', err);
-		sendJson(res, 500, { error: err.message || 'Internal error' });
+		sendJson(res, 500, { error: 'Internal error' });
 	}
 };
