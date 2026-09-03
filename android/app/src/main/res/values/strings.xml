@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Bonzaa</string>
-    <!-- Must equal the Redirect URL of the Catalyst mobile SDK package, plus "://" -->
-    <string name="url_scheme">bonzaa://</string>
+    <!--
+      URI scheme the Zoho login redirect comes back on. Must be exactly the
+      Redirect URL of the Catalyst mobile SDK package (redirectUrl=bonzaa in
+      app_configuration_development.properties) with NO "://" — Android matches
+      android:scheme against the scheme alone, so "bonzaa://" never matches the
+      redirect bonzaa:// and the hosted login screen would hang.
+    -->
+    <string name="url_scheme">bonzaa</string>
 </resources>

@@ -2,6 +2,7 @@ package com.bonzaa.app.data
 
 import android.app.Activity
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.zoho.catalyst.setup.ZCatalystApp
 import com.zoho.catalyst.setup.ZCatalystSDKConfigs
@@ -20,9 +21,6 @@ object CatalystAuth {
 
     private const val TAG = "BonzaaAuth"
 
-    /** Matches `redirectUrl` in the properties file / the console package. */
-    const val REDIRECT_URL = "bonzaa"
-
     /**
      * Which app_configuration_<env>.properties the SDK loads. init() without an
      * environment defaults to PRODUCTION and fails with FileNotFoundException
@@ -34,7 +32,19 @@ object CatalystAuth {
 
     fun init(context: Context) {
         if (initialized) return
-        runCatching { ZCatalystApp.init(context.applicationContext, ENVIRONMENT) }
+        runCatching {
+                ZCatalystApp.init(context.applicationContext, ENVIRONMENT)
+                // The IAM SDK's own logging is the only way to see why a login
+                // failed (every server error reaches us as "general_error"), but
+                // it prints the OAuth client_secret in request URLs — so enable
+                // it on debug builds only, never in the APK we hand out.
+                if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                    runCatching {
+                        Class.forName("com.zoho.accounts.externalportal.IAMClientSDK")
+                            .getMethod("showLogs").invoke(null)
+                    }
+                }
+            }
             .onSuccess { initialized = true }
             .onFailure { Log.e(TAG, "Catalyst SDK init failed", it) }
     }
@@ -42,13 +52,30 @@ object CatalystAuth {
     fun isSignedIn(): Boolean =
         initialized && runCatching { ZCatalystApp.getInstance().isUserSignedIn() }.getOrDefault(false)
 
+    /**
+     * Opens Zoho's hosted sign-in screen in a Chrome Custom Tab — the same page
+     * the web app uses, so it offers Google plus email/password and needs no
+     * per-app Google client.
+     *
+     * The other overload, login(activity, googleClientID, ...), does a *native*
+     * Google sign-in and posts the resulting Google id_token to
+     * /oauth/v2/native/token. Google issues that token fine, but Zoho answers
+     * {"error":"general_error"} — it will only trust an id_token whose audience
+     * is a Google client registered on its side, which the console gives no way
+     * to supply. Do not go back to it without fixing that first.
+     */
     fun login(activity: Activity, onDone: (Boolean, String?) -> Unit) {
         if (!initialized) return onDone(false, "Catalyst SDK not initialised")
         ZCatalystApp.getInstance().login(
-            activity,
-            REDIRECT_URL,
-            { onDone(true, null) },
-            { e -> onDone(false, e.message) },
+            HashMap(),
+            {
+                Log.i(TAG, "login success")
+                onDone(true, null)
+            },
+            { e ->
+                Log.e(TAG, "login FAILED code=${e.code} msg=${e.message}", e)
+                onDone(false, e.message)
+            },
         )
     }
 
