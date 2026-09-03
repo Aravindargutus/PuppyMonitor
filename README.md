@@ -64,23 +64,53 @@ Notes for a clean build:
 
 ---
 
-## 🔴 Open issue — help wanted
+## ✅ Resolved — Android Google sign-in
 
-**Native Google sign-in on Android fails with `DEVELOPER_ERROR`** ("Something
-went wrong" on the Google screen). Web Google sign-in works; Android does not.
+Android sign-in now works. Recording it here because none of it is documented
+and every step looked like a misconfiguration on our side.
 
-- **Cause:** native Google Sign-In validates the app by **signing SHA-1 +
-  package name**. An **Android** OAuth client (package `com.bonzaa.app` + the
-  app's SHA-1) must exist in the **same Google Cloud project** as the web
-  OAuth client Catalyst uses. This is not documented by the Catalyst plugin.
-- **Fingerprints to register:**
-  - Debug: `FB:17:8E:30:56:34:E1:5A:1E:58:21:46:3D:54:DA:5F:B7:C6:06:08`
-  - Release: `4C:CC:6D:E4:39:54:2C:30:E4:21:9A:0D:97:05:E8:01:8B:51:3C:28`
-- **Relevant code:** `android/.../data/CatalystAuth.kt` (the `login()` wrapper);
-  redirect is `redirectUrl=bonzaa` / `url_scheme=bonzaa://`.
-- **Current status:** the Android OAuth clients exist in the right project;
-  we are verifying the SHA-1 values match the installed build. On a real
-  phone the failure logs as `ConnectionResult{statusCode=DEVELOPER_ERROR}`.
+**Symptom:** "Something went wrong" on the Google screen, logged as
+`LOGIN_ERROR : general_error`. Web Google sign-in worked throughout.
+
+**What it actually was.** `ZCatalystApp.login(activity, googleClientID, ...)`
+does a *native* Google sign-in: `requestIdToken(<client id>)`, then it posts the
+resulting Google ID token to Zoho at
+`/oauth/v2/native/token?grant_type=native_mobile_token` as an
+`Authorization: Bearer` header. Zoho replies:
+
+```json
+{"error":"general_error"}
+```
+
+Zoho will only accept an ID token whose **audience is a Google client
+registered on Zoho's side**, and the Catalyst console gives no way to register
+one for the mobile SDK — `app_configuration_*.properties` has no Google field,
+and no console/MCP API exposes it. Google's half was correct the whole time.
+
+**The fix.** The SDK has a second, undocumented login overload —
+`login(HashMap, onSuccess, onFailure)` — which calls
+`IAMClientSDK.presentLoginScreen()`: Zoho's **hosted sign-in page in a Chrome
+Custom Tab**. That is the same page the web app uses, so it offers Google plus
+email/password and needs no per-app Google client. See
+`android/.../data/CatalystAuth.kt`.
+
+**Two traps worth knowing:**
+
+- `url_scheme` must be `bonzaa`, **not** `bonzaa://`. Android matches
+  `android:scheme` against the scheme alone, so `bonzaa://` can never match the
+  `bonzaa://` redirect and the hosted login hangs. The native path never
+  redirected, which kept this hidden.
+- The IAM SDK's `showLogs()` is the only way to see why a login failed (every
+  server error reaches the app as `general_error`) — but it prints the OAuth
+  **`client_secret`** in request URLs. It is now gated to debuggable builds so
+  it cannot reach a distributed APK.
+
+Along the way Zoho also rate-limited the token endpoint after repeated retries
+(`"You have made too many requests continuously"`), which masked the real error
+for a while. If you see that, wait rather than retrying.
+
+Native Google sign-in is no longer used, so the Android OAuth clients and their
+SHA-1 fingerprints in Google Cloud are now irrelevant to this app.
 
 A full write-up of every gap we hit building on Catalyst (SDK coords, docs
 contradictions, Security Rules, etc.) is kept separately as the "Catalyst
