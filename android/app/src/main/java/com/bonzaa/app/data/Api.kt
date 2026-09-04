@@ -1,5 +1,6 @@
 package com.bonzaa.app.data
 
+import com.bonzaa.app.BuildConfig
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -91,7 +92,7 @@ object ApiClient {
     }
 
     val api: BonzaaApi by lazy {
-        val client = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             // Attach the Catalyst OAuth token so the function accepts the call.
@@ -107,10 +108,14 @@ object ApiClient {
                 }
                 chain.proceed(request)
             }
-            .addInterceptor(HttpLoggingInterceptor().apply {
+        // URLs alone (puppy/food ids, dates) aren't worth leaking into a release
+        // build's logcat for the sake of debug convenience.
+        if (BuildConfig.DEBUG) {
+            builder.addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             })
-            .build()
+        }
+        val client = builder.build()
 
         Retrofit.Builder()
             .baseUrl(BASE_URL)

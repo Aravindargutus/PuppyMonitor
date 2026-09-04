@@ -187,8 +187,12 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     }
                     androidx.compose.material3.TextButton(
                         onClick = {
-                            com.bonzaa.app.data.CatalystAuth.logout { ok, _ ->
-                                if (ok) signedIn = false
+                            // Deregister first: otherwise this device stays subscribed to this
+                            // account's family notifications even after signing out of it.
+                            PushNotifications.deregisterDevice {
+                                com.bonzaa.app.data.CatalystAuth.logout { ok, _ ->
+                                    if (ok) signedIn = false
+                                }
                             }
                         },
                         modifier = Modifier.padding(end = 4.dp),

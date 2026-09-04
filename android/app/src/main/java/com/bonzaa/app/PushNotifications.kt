@@ -57,8 +57,30 @@ object PushNotifications {
         }
     }
 
+    /**
+     * Call before signing out. Without this the device stays registered against
+     * the account that's leaving — on a shared or handed-down phone the next
+     * person to sign in could otherwise still receive the previous account's
+     * family notifications until the token happens to rotate on its own.
+     */
+    fun deregisterDevice(onDone: () -> Unit) {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            val token = task.result
+            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onDone()
+            ZCatalystApp.getInstance().deregisterNotification(
+                token, BUNDLE_ID, CATALYST_APP_ID, true,
+                { Log.i(TAG, "Device deregistered from push"); onDone() },
+                { e -> Log.w(TAG, "deregisterNotification failed: ${e.message}"); onDone() },
+            )
+        }
+    }
+
     private fun registerToken(token: String?) {
-        if (token.isNullOrBlank()) return
+        // onNewToken() fires the moment FCM issues a token — on a fresh install
+        // that's before sign-in ever happens. registerNotification() reaches into
+        // the signed-in user internally and NPEs if there isn't one, so this guard
+        // has to live here, not just in registerDevice()'s caller.
+        if (token.isNullOrBlank() || !CatalystAuth.isSignedIn()) return
         // true, matching Catalyst's own documented registration call — this flag is
         // unrelated to our Catalyst Development/Production environment; it went
         // untested at false and no push arrived, so follow the documented example.
@@ -85,7 +107,11 @@ object PushNotifications {
         }
 
         override fun onMessageReceived(message: RemoteMessage) {
-            Log.i(TAG, "onMessageReceived notification=${message.notification?.body} data=${message.data}")
+            // The payload carries a family member's name and a symptom/severity —
+            // fine to show on-device, not fine to leave sitting in release logcat.
+            if (BuildConfig.DEBUG) {
+                Log.i(TAG, "onMessageReceived notification=${message.notification?.body} data=${message.data}")
+            }
             // sendAndroidNotification's payload arrives as a data message, not a
             // system-rendered "notification" one, so we build and show it ourselves —
             // this is also what lets the app stay silent while it's already open on
@@ -114,6 +140,8 @@ object PushNotifications {
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                // Symptom/member details shouldn't sit readable on a locked phone's screen.
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .build()
 
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)

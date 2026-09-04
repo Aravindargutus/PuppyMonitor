@@ -1,6 +1,7 @@
 'use strict';
 
 const catalyst = require('zcatalyst-sdk-node');
+const crypto = require('crypto');
 
 /*
  * Bonzaa Puppy Food Tracker — Advanced I/O API
@@ -43,6 +44,12 @@ const BASELINE_DAYS = 14; // frequency baseline for down-weighting everyday food
 // Firebase project or the Catalyst project itself.
 const PUSH_APP_ID = '5433000043323270';
 
+// Cache segment (Console > Cloud Scale > Cache) used only for rate limiting —
+// see checkRateLimit(). Not app data, nothing here is ever read back to a client.
+const RATE_LIMIT_SEGMENT_ID = 5433000043329268;
+
+const MAX_BODY_BYTES = 100 * 1024; // generous for our small JSON payloads incl. free-text notes
+
 class ApiError extends Error {
 	constructor(httpStatus, body) {
 		super(typeof body === 'string' ? body : body.error);
@@ -52,7 +59,9 @@ class ApiError extends Error {
 }
 
 function sendJson(res, statusCode, data) {
-	res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+	// no-store: responses carry another family's-worth-adjacent puppy/health data —
+	// never worth letting a shared device or intermediary cache it.
+	res.writeHead(statusCode, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
 	res.end(JSON.stringify(data));
 }
 
@@ -63,7 +72,16 @@ function getBody(req) {
 			try { return resolve(JSON.parse(req.body)); } catch (e) { return resolve({}); }
 		}
 		let data = '';
-		req.on('data', (chunk) => { data += chunk; });
+		let bytes = 0;
+		req.on('data', (chunk) => {
+			bytes += chunk.length;
+			if (bytes > MAX_BODY_BYTES) {
+				req.destroy();
+				reject(new ApiError(413, 'Request body too large'));
+				return;
+			}
+			data += chunk;
+		});
 		req.on('end', () => {
 			try { resolve(data ? JSON.parse(data) : {}); } catch (e) { resolve({}); }
 		});
@@ -91,15 +109,36 @@ function shiftDatetime(dtString, hours) {
 }
 
 function isValidDatetime(s) {
-	return typeof s === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(s);
+	const m = typeof s === 'string' && /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+	if (!m) return false;
+	const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+	const hour = Number(m[4]), minute = Number(m[5]), second = m[6] ? Number(m[6]) : 0;
+	if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
+	// Round-trip through Date to catch calendar-impossible values the regex lets through
+	// (Feb 30, day 32, ...) — Date normalizes overflow instead of rejecting it.
+	const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+	return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
 }
 
 function randomInviteCode() {
 	// Avoids 0/O/1/I so a family reading it aloud (or squinting at a phone) never confuses characters.
+	// crypto.randomInt, not Math.random: this code is effectively a bearer credential
+	// for joining a household, so it needs to be unguessable, not just look random.
 	const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 	let out = '';
-	for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+	for (let i = 0; i < 8; i++) out += alphabet[crypto.randomInt(alphabet.length)];
 	return out;
+}
+
+async function generateUniqueInviteCode(app) {
+	const zcql = app.zcql();
+	// Collisions are astronomically unlikely at this scale, but retry rather than trust it blindly.
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const candidate = randomInviteCode();
+		const clash = await zcqlOne(zcql, `SELECT ROWID FROM Households WHERE InviteCode = '${candidate}'`, 'Households');
+		if (!clash) return candidate;
+	}
+	return null;
 }
 
 async function zcqlAll(zcql, baseQuery, tableName) {
@@ -120,6 +159,33 @@ async function zcqlAll(zcql, baseQuery, tableName) {
 async function zcqlOne(zcql, baseQuery, tableName) {
 	const rows = await zcqlAll(zcql, baseQuery, tableName);
 	return rows[0] || null;
+}
+
+/* ---------- rate limiting ---------- */
+// Coarse, per-user, 1-hour buckets in Catalyst Cache (its minimum TTL unit) —
+// not trying to stop a determined attacker, just the two realistic abuse
+// loops this app has: rapid leave/rejoin to spam "joined your family" pushes,
+// and rapid-fire symptom logging to spam everyone else's phone.
+
+async function checkRateLimit(app, bucket, userId, maxPerHour) {
+	try {
+		const segment = app.cache().segment(RATE_LIMIT_SEGMENT_ID);
+		const key = `${bucket}:${userId}`;
+		const current = await segment.getValue(key);
+		const count = current ? Number(current) : 0;
+		if (count >= maxPerHour) {
+			throw new ApiError(429, { error: 'Too many requests — please wait a bit before trying again' });
+		}
+		if (current) {
+			await segment.update(key, String(count + 1), 1);
+		} else {
+			await segment.put(key, '1', 1);
+		}
+	} catch (e) {
+		if (e instanceof ApiError) throw e;
+		// Cache hiccup: fail open rather than lock a family out of the app over it.
+		console.error('rate limit check failed, allowing request:', e.message || e);
+	}
 }
 
 /* ---------- household membership ---------- */
@@ -371,15 +437,7 @@ const routes = {
 		if (ctx.household) return sendJson(res, 409, { error: 'You already belong to a family' });
 		const body = await getBody(req);
 		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
-		const zcql = app.zcql();
-		let inviteCode;
-		// InviteCode is unique — collisions are astronomically unlikely at this
-		// scale, but retry rather than trust it blindly.
-		for (let attempt = 0; attempt < 5; attempt++) {
-			const candidate = randomInviteCode();
-			const clash = await zcqlOne(zcql, `SELECT ROWID FROM Households WHERE InviteCode = '${candidate}'`, 'Households');
-			if (!clash) { inviteCode = candidate; break; }
-		}
+		const inviteCode = await generateUniqueInviteCode(app);
 		if (!inviteCode) return sendJson(res, 500, { error: 'Could not allocate an invite code, try again' });
 
 		const household = await app.datastore().table('Households').insertRow({
@@ -401,6 +459,7 @@ const routes = {
 
 	'POST /household/join': async (app, req, res, query, ctx) => {
 		if (ctx.household) return sendJson(res, 409, { error: 'You already belong to a family' });
+		await checkRateLimit(app, 'join', ctx.user.user_id, 5);
 		const body = await getBody(req);
 		const code = (body.invite_code || '').trim().toUpperCase();
 		if (!code) return sendJson(res, 400, { error: 'invite_code is required' });
@@ -467,6 +526,13 @@ const routes = {
 			return sendJson(res, 404, { error: 'Not a member of your family' });
 		}
 		await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
+		// The removed member saw this household's invite code while they were in it
+		// (every member can see it, to help grow the family) — without rotating it,
+		// they could rejoin immediately with the same code. New code invalidates that.
+		const newCode = await generateUniqueInviteCode(app);
+		if (newCode) {
+			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, InviteCode: newCode });
+		}
 		sendJson(res, 200, { removed: targetUserId });
 	},
 
@@ -575,6 +641,11 @@ const routes = {
 			return sendJson(res, 400, { error: "fed_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
 		await assertPuppyInHousehold(app, body.puppy_id, ctx.household.id);
+		// Without this, a feeding could point at another household's FoodItems row —
+		// computeSuspects()'s metadata lookup isn't household-scoped (it trusts the
+		// FoodItemIds it's handed came from an already-verified puppy), so that food's
+		// name/brand/type would leak into this household's suspect analysis.
+		await assertRowInHousehold(app, 'FoodItems', body.food_item_id, ctx.household.id);
 		const row = await app.datastore().table('FeedingLogs').insertRow({
 			PuppyId: Number(body.puppy_id),
 			FoodItemId: Number(body.food_item_id),
@@ -614,6 +685,7 @@ const routes = {
 	},
 
 	'POST /symptoms': async (app, req, res, query, ctx) => {
+		await checkRateLimit(app, 'symptom', ctx.user.user_id, 20);
 		const body = await getBody(req);
 		const required = ['puppy_id', 'symptom', 'onset_at'];
 		for (const k of required) {

@@ -118,6 +118,31 @@ Plugin Gaps" report.
 
 ---
 
+## 🟡 Known limitation — OAuth redirect uses a bare custom scheme
+
+Sign-in redirects back into the app via `bonzaa://`, a plain custom URI
+scheme, not a verified Android App Link. Any other app that declares an
+identical `<data android:scheme="bonzaa">` intent filter can register itself
+as a candidate handler for that redirect and would show up in the OS's
+chooser alongside Bonzaa — the classic custom-scheme interception risk that
+App Links / PKCE / `state` validation exist to close off.
+
+This isn't something we can patch from app code: `ZCatalystRedirectActivity`,
+the scheme, and the whole redirect handshake live inside Zoho's closed-source
+Catalyst SDK, and the redirect URI shape (`bonzaa`, not an `https://` App
+Link) is what Catalyst's console has registered for this project. We did not
+find PKCE or `state`-parameter handling in the SDK's bytecode, but we also
+don't have visibility into the full handshake to be certain there's no other
+mitigation in play.
+
+If this needs closing, it's a question for Zoho (does the Mobile SDK support
+App Link redirects or PKCE?), not a code change here. Until then, the
+practical exposure is bounded by the OS's own chooser UI — a malicious app
+still has to win a user's tap in a disambiguation dialog, not intercept
+silently — but it's a real gap, not a dismissed one.
+
+---
+
 ## Environment
 
 | | |
