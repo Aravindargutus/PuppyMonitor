@@ -190,28 +190,40 @@ async function assertRowInHousehold(app, tableName, rowId, householdId) {
 // (unregistered device, revoked token) are swallowed per-recipient so one
 // stale phone in the family never breaks the symptom log for everyone else.
 
-async function notifyHouseholdOfSymptom(app, ctx, puppyId, symptom, severity) {
+async function pushToHouseholdMembers(app, householdId, excludeUserId, message, additionalInfo) {
 	const zcql = app.zcql();
-	const puppy = await zcqlOne(zcql, `SELECT Name FROM Puppies WHERE ROWID = ${Number(puppyId)}`, 'Puppies');
 	const others = await zcqlAll(
 		zcql,
-		`SELECT CatalystUserId FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} ` +
-		`AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
+		`SELECT CatalystUserId FROM HouseholdMembers WHERE HouseholdId = ${Number(householdId)} ` +
+		`AND CatalystUserId != '${esc(String(excludeUserId))}'`,
 		'HouseholdMembers'
 	);
 	if (!others.length) return;
 
-	const puppyName = puppy ? puppy.Name : 'your puppy';
-	const actor = [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || 'Someone';
-	const message = `${actor} logged ${symptom}${severity ? ` (${severity})` : ''} for ${puppyName}`;
 	const mobile = app.pushNotification().mobile(PUSH_APP_ID);
-
 	await Promise.all(others.map((m) =>
 		mobile.sendAndroidNotification(
-			{ message, additional_info: { type: 'symptom_logged', puppy_id: String(puppyId) } },
+			{ message, additional_info: additionalInfo },
 			m.CatalystUserId
 		).catch((e) => console.error('push failed for', m.CatalystUserId, e.message || e))
 	));
+}
+
+async function notifyHouseholdOfSymptom(app, ctx, puppyId, symptom, severity) {
+	const zcql = app.zcql();
+	const puppy = await zcqlOne(zcql, `SELECT Name FROM Puppies WHERE ROWID = ${Number(puppyId)}`, 'Puppies');
+	const puppyName = puppy ? puppy.Name : 'your puppy';
+	const actor = [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || 'Someone';
+	const message = `${actor} logged ${symptom}${severity ? ` (${severity})` : ''} for ${puppyName}`;
+	await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, message, {
+		type: 'symptom_logged', puppy_id: String(puppyId)
+	});
+}
+
+async function notifyHouseholdOfNewMember(app, householdId, newUser) {
+	const name = [newUser.first_name, newUser.last_name].filter(Boolean).join(' ') || newUser.email_id || 'Someone';
+	const message = `${name} joined your family on Bonzaa`;
+	await pushToHouseholdMembers(app, householdId, newUser.user_id, message, { type: 'member_joined' });
 }
 
 /* ---------- suspect scoring ---------- */
@@ -406,6 +418,10 @@ const routes = {
 		sendJson(res, 201, {
 			household: { id: Number(household.ROWID), name: household.Name, invite_code: household.InviteCode, is_head: false, role: 'member' }
 		});
+		// The new member doesn't need to wait on this; the function must stay
+		// alive until it's attempted — await after responding, as with symptoms.
+		await notifyHouseholdOfNewMember(app, Number(household.ROWID), ctx.user)
+			.catch((e) => console.error('notifyHouseholdOfNewMember failed:', e));
 	},
 
 	'POST /household/leave': async (app, req, res, query, ctx) => {
