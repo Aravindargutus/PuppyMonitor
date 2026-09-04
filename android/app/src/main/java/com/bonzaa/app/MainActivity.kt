@@ -343,6 +343,7 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                 yourUserId = state.yourUserId,
                 onDismiss = { showFamilySheet = false },
                 onRemoveMember = vm::removeFamilyMember,
+                onMakeHead = vm::transferHeadship,
                 onLeave = {
                     showFamilySheet = false
                     vm.leaveFamily()

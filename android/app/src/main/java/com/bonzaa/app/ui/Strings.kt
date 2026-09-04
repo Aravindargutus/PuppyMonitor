@@ -94,6 +94,10 @@ object Strings {
         "hh_remove_q" to "Remove %s from the family?",
         "hh_left" to "You left the family",
         "hh_member_removed" to "%s removed",
+        "hh_make_head" to "Make head",
+        "hh_make_head_q" to "Make %s the head of your family?",
+        "hh_make_head_msg" to "They will be able to remove members and manage the family. You will become a regular member.",
+        "hh_head_transferred" to "%s is now the head",
         "hh_created" to "%s created 🎉",
         "hh_joined" to "Joined %s 🎉",
     )
@@ -184,6 +188,10 @@ object Strings {
         "hh_remove_q" to "%s-ஐ குடும்பத்திலிருந்து நீக்கவா?",
         "hh_left" to "நீங்கள் குடும்பத்தை விட்டு வெளியேறினீர்கள்",
         "hh_member_removed" to "%s நீக்கப்பட்டார்",
+        "hh_make_head" to "தலைவராக மாற்று",
+        "hh_make_head_q" to "%s-ஐ உங்கள் குடும்பத்தின் தலைவராக மாற்றவா?",
+        "hh_make_head_msg" to "அவர்கள் உறுப்பினர்களை நீக்கவும் குடும்பத்தை நிர்வகிக்கவும் முடியும். நீங்கள் ஒரு சாதாரண உறுப்பினராக மாறுவீர்கள்.",
+        "hh_head_transferred" to "%s இப்போது தலைவர்",
         "hh_created" to "%s உருவாக்கப்பட்டது 🎉",
         "hh_joined" to "%s-இல் சேர்ந்தீர்கள் 🎉",
     )

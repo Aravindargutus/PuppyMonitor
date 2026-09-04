@@ -15,6 +15,7 @@ import com.bonzaa.app.data.NewPuppy
 import com.bonzaa.app.data.NewSymptom
 import com.bonzaa.app.data.Puppy
 import com.bonzaa.app.data.SuspectAnalysis
+import com.bonzaa.app.data.TransferHead
 import com.bonzaa.app.data.UpdateFood
 import com.bonzaa.app.data.SymptomLog
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,6 +126,12 @@ class AppViewModel : ViewModel() {
 
     fun removeFamilyMember(userId: String) = launchSafe {
         api.removeMember(userId)
+        val r = api.getHousehold()
+        _state.value = _state.value.copy(household = r.household, householdMembers = r.members, yourUserId = r.yourUserId)
+    }
+
+    fun transferHeadship(userId: String) = launchSafe {
+        api.transferHead(TransferHead(userId))
         val r = api.getHousehold()
         _state.value = _state.value.copy(household = r.household, householdMembers = r.members, yourUserId = r.yourUserId)
     }

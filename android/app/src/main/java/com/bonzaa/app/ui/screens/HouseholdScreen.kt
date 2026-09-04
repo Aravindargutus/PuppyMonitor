@@ -139,12 +139,14 @@ fun FamilySheet(
     yourUserId: String?,
     onDismiss: () -> Unit,
     onRemoveMember: (userId: String) -> Unit,
+    onMakeHead: (userId: String) -> Unit,
     onLeave: () -> Unit,
 ) {
     val lang = LocalLang.current
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<HouseholdMember?>(null) }
+    var confirmMakeHead by remember { mutableStateOf<HouseholdMember?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -199,7 +201,10 @@ fun FamilySheet(
                             }
                         }
                         if (household.isHead && m.role != "head") {
-                            TextButton(onClick = { confirmRemove = m }) { Text(lang["hh_remove"]) }
+                            Row {
+                                TextButton(onClick = { confirmMakeHead = m }) { Text(lang["hh_make_head"]) }
+                                TextButton(onClick = { confirmRemove = m }) { Text(lang["hh_remove"]) }
+                            }
                         }
                     }
                     HorizontalDivider()
@@ -221,6 +226,18 @@ fun FamilySheet(
                 TextButton(onClick = { onRemoveMember(m.userId); confirmRemove = null }) { Text(lang["hh_remove"]) }
             },
             dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text(lang["cancel"]) } },
+        )
+    }
+
+    confirmMakeHead?.let { m ->
+        AlertDialog(
+            onDismissRequest = { confirmMakeHead = null },
+            title = { Text(lang.fmt("hh_make_head_q", m.displayName?.takeIf { it.isNotBlank() } ?: m.email ?: m.userId)) },
+            text = { Text(lang["hh_make_head_msg"]) },
+            confirmButton = {
+                TextButton(onClick = { onMakeHead(m.userId); confirmMakeHead = null }) { Text(lang["hh_make_head"]) }
+            },
+            dismissButton = { TextButton(onClick = { confirmMakeHead = null }) { Text(lang["cancel"]) } },
         )
     }
 

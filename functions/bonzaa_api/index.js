@@ -515,7 +515,7 @@ const routes = {
 				'HouseholdMembers'
 			);
 			if (others) {
-				return sendJson(res, 400, { error: 'Remove the other members first, or have someone else become head' });
+				return sendJson(res, 400, { error: 'Transfer headship to another member first, or remove them all, before leaving' });
 			}
 		}
 		const membership = await zcqlOne(
@@ -528,6 +528,44 @@ const routes = {
 			await app.datastore().table('Households').deleteRow(ctx.household.id);
 		}
 		sendJson(res, 200, { left: true });
+	},
+
+	'POST /household/transfer-head': async (app, req, res, query, ctx) => {
+		if (!ctx.household.is_head) return sendJson(res, 403, { error: 'Only the current head can transfer headship' });
+		const body = await getBody(req);
+		const targetUserId = (body.user_id || '').toString().trim();
+		if (!targetUserId) return sendJson(res, 400, { error: 'user_id is required' });
+		if (targetUserId === String(ctx.user.user_id)) {
+			return sendJson(res, 400, { error: 'Choose someone else to become head' });
+		}
+		const zcql = app.zcql();
+		const target = await zcqlOne(
+			zcql,
+			`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
+			'HouseholdMembers'
+		);
+		if (!target || Number(target.HouseholdId) !== ctx.household.id) {
+			return sendJson(res, 404, { error: 'Not a member of your family' });
+		}
+		const selfMembership = await zcqlOne(
+			zcql,
+			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
+			'HouseholdMembers'
+		);
+		if (!selfMembership) return sendJson(res, 404, { error: 'Membership not found' });
+
+		// Promote the new head before demoting the outgoing one: if this fails
+		// partway through, the failure mode is briefly "two heads", not "no head" —
+		// a household stuck with zero heads can't fix itself (only a head can
+		// remove members or transfer headship again).
+		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(target.ROWID), Role: 'head' });
+		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(selfMembership.ROWID), Role: 'member' });
+		await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, HeadUserId: targetUserId });
+
+		sendJson(res, 200, { transferred: targetUserId });
+		await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, '👑 Family headship changed — open Bonzaa for details', {
+			type: 'head_transferred'
+		}).catch((e) => console.error('notify transfer-head failed:', e));
 	},
 
 	'DELETE /household/members': async (app, req, res, query, ctx) => {

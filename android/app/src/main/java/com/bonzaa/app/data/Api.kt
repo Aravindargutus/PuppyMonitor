@@ -32,6 +32,9 @@ interface BonzaaApi {
     @DELETE("household/members")
     suspend fun removeMember(@Query("user_id") userId: String): RemovedResponse
 
+    @POST("household/transfer-head")
+    suspend fun transferHead(@Body body: TransferHead): TransferHeadResponse
+
     @GET("puppies")
     suspend fun getPuppies(): PuppiesResponse
 

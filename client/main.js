@@ -91,6 +91,10 @@ const T = {
     hh_remove_q: (n) => `Remove ${n} from the family?`,
     hh_left: 'You left the family', hh_member_removed: (n) => `${n} removed`,
     hh_head_leave_blocked: 'Remove the other members first, or ask them to leave',
+    hh_make_head: 'Make head',
+    hh_make_head_q: (n) => `Make ${n} the head of your family?`,
+    hh_make_head_msg: 'They will be able to remove members and manage the family. You will become a regular member.',
+    hh_head_transferred: (n) => `${n} is now the head`,
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
       'black drool': 'black drool', 'excessive drooling': 'excessive drooling',
@@ -186,6 +190,10 @@ const T = {
     hh_remove_q: (n) => `${n}-ஐ குடும்பத்திலிருந்து நீக்கவா?`,
     hh_left: 'நீங்கள் குடும்பத்தை விட்டு வெளியேறினீர்கள்', hh_member_removed: (n) => `${n} நீக்கப்பட்டார்`,
     hh_head_leave_blocked: 'முதலில் மற்ற உறுப்பினர்களை நீக்கவும், அல்லது அவர்களை வெளியேறச் சொல்லுங்கள்',
+    hh_make_head: 'தலைவராக மாற்று',
+    hh_make_head_q: (n) => `${n}-ஐ உங்கள் குடும்பத்தின் தலைவராக மாற்றவா?`,
+    hh_make_head_msg: 'அவர்கள் உறுப்பினர்களை நீக்கவும் குடும்பத்தை நிர்வகிக்கவும் முடியும். நீங்கள் ஒரு சாதாரண உறுப்பினராக மாறுவீர்கள்.',
+    hh_head_transferred: (n) => `${n} இப்போது தலைவர்`,
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
       'black drool': 'கருப்பு உமிழ்நீர்', 'excessive drooling': 'அதிக உமிழ்நீர் வடிதல்',
@@ -1169,7 +1177,11 @@ function renderFamilySheet(members) {
             <div class="member-name">${esc(m.display_name || m.email || m.user_id)}${m.user_id === String(state.userId) ? ` · ${t('hh_you')}` : ''}</div>
             ${m.role === 'head' ? `<div class="member-role">${t('hh_head')}</div>` : ''}
           </div>
-          ${hh.is_head && m.role !== 'head' ? `<button type="button" class="chip" data-remove-member="${esc(m.user_id)}" data-remove-name="${esc(m.display_name || m.email || m.user_id)}">${t('hh_remove')}</button>` : ''}
+          ${hh.is_head && m.role !== 'head' ? `
+            <div style="display:flex;gap:6px;">
+              <button type="button" class="chip" data-make-head="${esc(m.user_id)}" data-make-head-name="${esc(m.display_name || m.email || m.user_id)}">${t('hh_make_head')}</button>
+              <button type="button" class="chip" data-remove-member="${esc(m.user_id)}" data-remove-name="${esc(m.display_name || m.email || m.user_id)}">${t('hh_remove')}</button>
+            </div>` : ''}
         </div>`).join('')}
     </div>
     <button type="button" class="btn-ghost" id="leaveFamilyBtn" style="width:100%;padding:12px;border-radius:99px;font-weight:700;margin-top:16px;">${t('hh_leave')}</button>`);
@@ -1179,10 +1191,31 @@ function renderFamilySheet(members) {
     $('#copyInviteBtn').textContent = t('hh_copied');
     setTimeout(() => { const b = document.getElementById('copyInviteBtn'); if (b) b.textContent = t('hh_copy'); }, 1500);
   };
+  $('#sheet').querySelectorAll('[data-make-head]').forEach((btn) => {
+    btn.onclick = () => confirmMakeHead(btn.dataset.makeHead, btn.dataset.makeHeadName);
+  });
   $('#sheet').querySelectorAll('[data-remove-member]').forEach((btn) => {
     btn.onclick = () => confirmRemoveMember(btn.dataset.removeMember, btn.dataset.removeName);
   });
   $('#leaveFamilyBtn').onclick = confirmLeaveFamily;
+}
+
+function confirmMakeHead(userId, name) {
+  openSheet(`
+    <h3>${t('hh_make_head_q', esc(name))}</h3>
+    <p class="s-sub">${t('hh_make_head_msg')}</p>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="cancel-make-head">${t('cancel')}</button>
+      <button class="btn-danger" id="confirm-make-head">${t('hh_make_head')}</button>
+    </div>`);
+  $('#cancel-make-head').onclick = () => openFamilySheet();
+  $('#confirm-make-head').onclick = async () => {
+    try {
+      await call('/household/transfer-head', { method: 'POST', body: JSON.stringify({ user_id: userId }) });
+      toast(t('hh_head_transferred', name));
+      openFamilySheet();
+    } catch (e) { toast(e.message); }
+  };
 }
 
 function confirmRemoveMember(userId, name) {

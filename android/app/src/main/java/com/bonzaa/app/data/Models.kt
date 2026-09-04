@@ -155,6 +155,7 @@ data class HouseholdMember(
 @Serializable data class HouseholdCreateResponse(val household: Household)
 @Serializable data class LeftResponse(val left: Boolean = true)
 @Serializable data class RemovedResponse(val removed: String)
+@Serializable data class TransferHeadResponse(val transferred: String)
 
 /* ---------- request bodies ---------- */
 
@@ -202,6 +203,9 @@ data class NewHousehold(val name: String)
 
 @Serializable
 data class JoinHousehold(@SerialName("invite_code") val inviteCode: String)
+
+@Serializable
+data class TransferHead(@SerialName("user_id") val userId: String)
 
 @Serializable
 data class NewSymptom(
