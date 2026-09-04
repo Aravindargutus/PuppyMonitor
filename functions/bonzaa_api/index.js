@@ -44,10 +44,6 @@ const BASELINE_DAYS = 14; // frequency baseline for down-weighting everyday food
 // Firebase project or the Catalyst project itself.
 const PUSH_APP_ID = '5433000043323270';
 
-// Cache segment (Console > Cloud Scale > Cache) used only for rate limiting —
-// see checkRateLimit(). Not app data, nothing here is ever read back to a client.
-const RATE_LIMIT_SEGMENT_ID = 5433000043329268;
-
 const MAX_BODY_BYTES = 100 * 1024; // generous for our small JSON payloads incl. free-text notes
 
 class ApiError extends Error {
@@ -162,28 +158,51 @@ async function zcqlOne(zcql, baseQuery, tableName) {
 }
 
 /* ---------- rate limiting ---------- */
-// Coarse, per-user, 1-hour buckets in Catalyst Cache (its minimum TTL unit) —
-// not trying to stop a determined attacker, just the two realistic abuse
-// loops this app has: rapid leave/rejoin to spam "joined your family" pushes,
-// and rapid-fire symptom logging to spam everyone else's phone.
-
+// Per-user, per-hour caps on the two routes that fan out a push per call —
+// stops rapid leave/rejoin spamming "joined your family", and rapid-fire
+// symptom logging spamming everyone else's phone. Backed by a Data Store
+// table (RateLimits: RLKey unique, Count), not Catalyst Cache: an earlier
+// version used Cache's getValue()-then-update(), which is two separate
+// round trips from our own code — a burst of concurrent requests can all
+// read the same "under limit" count before any of them writes back the
+// increment (confirmed live: 30 concurrent requests, all accepted, final
+// stored count "1"). The fix is doing the check and the increment as ONE
+// statement the database evaluates atomically, not two we sequence
+// ourselves: `UPDATE ... SET Count = Count + 1 WHERE RLKey = ? AND Count
+// < ?` returns the updated row when it was still under the cap, and an
+// empty result when it wasn't — confirmed live against this project's own
+// Data Store. The hour is baked into RLKey itself (rather than tracked in
+// a WindowStart column) so a new hour just means a new key, with no
+// separate reset step to race on.
 async function checkRateLimit(app, bucket, userId, maxPerHour) {
 	try {
-		const segment = app.cache().segment(RATE_LIMIT_SEGMENT_ID);
-		const key = `${bucket}:${userId}`;
-		const current = await segment.getValue(key);
-		const count = current ? Number(current) : 0;
-		if (count >= maxPerHour) {
+		const zcql = app.zcql();
+		const hourBucket = new Date().toISOString().slice(0, 13); // e.g. "2026-09-05T00"
+		const key = `${bucket}:${userId}:${hourBucket}`;
+
+		const incremented = await zcqlOne(
+			zcql,
+			`UPDATE RateLimits SET Count = Count + 1 WHERE RLKey = '${esc(key)}' AND Count < ${Number(maxPerHour)}`,
+			'RateLimits'
+		);
+		if (incremented) return; // was under the cap, and the increment already landed
+
+		const existing = await zcqlOne(zcql, `SELECT ROWID FROM RateLimits WHERE RLKey = '${esc(key)}'`, 'RateLimits');
+		if (existing) {
 			throw new ApiError(429, { error: 'Too many requests — please wait a bit before trying again' });
 		}
-		if (current) {
-			await segment.update(key, String(count + 1), 1);
-		} else {
-			await segment.put(key, '1', 1);
+		// First request in this hour for this key. RLKey is unique, so a concurrent
+		// first request racing us here just fails its own insert — whichever of us
+		// wins still correctly counts as this hour's 1st, and the loser's request
+		// still went through (it just doesn't get to also claim the row).
+		try {
+			await app.datastore().table('RateLimits').insertRow({ RLKey: key, Count: 1 });
+		} catch (e) {
+			// Someone else created it in the same instant — fine, this request still happened.
 		}
 	} catch (e) {
 		if (e instanceof ApiError) throw e;
-		// Cache hiccup: fail open rather than lock a family out of the app over it.
+		// Data Store hiccup: fail open rather than lock a family out of the app over it.
 		console.error('rate limit check failed, allowing request:', e.message || e);
 	}
 }
@@ -275,21 +294,24 @@ async function pushToHouseholdMembers(app, householdId, excludeUserId, message, 
 	));
 }
 
-async function notifyHouseholdOfSymptom(app, ctx, puppyId, symptom, severity) {
-	const zcql = app.zcql();
-	const puppy = await zcqlOne(zcql, `SELECT Name FROM Puppies WHERE ROWID = ${Number(puppyId)}`, 'Puppies');
-	const puppyName = puppy ? puppy.Name : 'your puppy';
-	const actor = [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || 'Someone';
-	const message = `${actor} logged ${symptom}${severity ? ` (${severity})` : ''} for ${puppyName}`;
-	await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, message, {
+// Push messages are deliberately generic — who, what symptom, and how severe
+// all stay inside the app, fetched over the authenticated API once someone
+// opens it, rather than riding in the FCM payload. FCM is TLS-encrypted
+// point-to-point, not end-to-end: Google's own infrastructure sees the
+// plaintext body it's routing, so a family member's name and a pet's
+// symptom/severity don't belong in it. additional_info carries only the
+// opaque ids the client needs to deep-link to the right screen.
+
+async function notifyHouseholdOfSymptom(app, ctx, puppyId) {
+	await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, '🐾 A symptom was logged — open Bonzaa for details', {
 		type: 'symptom_logged', puppy_id: String(puppyId)
 	});
 }
 
 async function notifyHouseholdOfNewMember(app, householdId, newUser) {
-	const name = [newUser.first_name, newUser.last_name].filter(Boolean).join(' ') || newUser.email_id || 'Someone';
-	const message = `${name} joined your family on Bonzaa`;
-	await pushToHouseholdMembers(app, householdId, newUser.user_id, message, { type: 'member_joined' });
+	await pushToHouseholdMembers(app, householdId, newUser.user_id, '👨‍👩‍👧 Someone joined your family on Bonzaa', {
+		type: 'member_joined'
+	});
 }
 
 /* ---------- suspect scoring ---------- */
@@ -525,14 +547,18 @@ const routes = {
 		if (!member || Number(member.HouseholdId) !== ctx.household.id) {
 			return sendJson(res, 404, { error: 'Not a member of your family' });
 		}
-		await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
-		// The removed member saw this household's invite code while they were in it
-		// (every member can see it, to help grow the family) — without rotating it,
-		// they could rejoin immediately with the same code. New code invalidates that.
+		// Rotate the invite code BEFORE deleting the membership, not after: the
+		// removed member saw this code while they were in the household (every
+		// member can see it, to help grow the family), so if the delete lands
+		// first there's a real window where the old code still works and a
+		// flood of join attempts could land in it. Rotating first means the old
+		// code is already dead before the removal takes effect — no window at all,
+		// not just a smaller one.
 		const newCode = await generateUniqueInviteCode(app);
 		if (newCode) {
 			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, InviteCode: newCode });
 		}
+		await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
 		sendJson(res, 200, { removed: targetUserId });
 	},
 
@@ -707,7 +733,7 @@ const routes = {
 		sendJson(res, 201, { symptom: row, analysis });
 		// The person logging it doesn't need to wait on push delivery, but the
 		// function must stay alive until it's attempted — await after responding.
-		await notifyHouseholdOfSymptom(app, ctx, body.puppy_id, body.symptom, body.severity)
+		await notifyHouseholdOfSymptom(app, ctx, body.puppy_id)
 			.catch((e) => console.error('notifyHouseholdOfSymptom failed:', e));
 	},
 

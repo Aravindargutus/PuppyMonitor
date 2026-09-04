@@ -75,7 +75,7 @@ object PushNotifications {
         }
     }
 
-    private fun registerToken(token: String?) {
+    private fun registerToken(token: String?, isRetry: Boolean = false) {
         // onNewToken() fires the moment FCM issues a token — on a fresh install
         // that's before sign-in ever happens. registerNotification() reaches into
         // the signed-in user internally and NPEs if there isn't one, so this guard
@@ -88,11 +88,24 @@ object PushNotifications {
             token, BUNDLE_ID, CATALYST_APP_ID, true,
             { Log.i(TAG, "Device registered for push") },
             { e ->
-                // Catalyst rejects re-registering an already-registered (token, appId,
-                // isProduction) triple instead of treating it as a no-op — expected on
-                // every app launch after the first, so it isn't a real failure.
-                if (e.message?.contains("already registered", ignoreCase = true) == true) {
-                    Log.i(TAG, "Device already registered for push")
+                if (!isRetry && e.message?.contains("already registered", ignoreCase = true) == true) {
+                    // This token is already registered — could be this same account (the
+                    // common case, harmless), or it could be a DIFFERENT account's leftover
+                    // registration from a sign-out whose deregisterDevice() call failed (a
+                    // shared/handed-down phone, say). Deregistering solely on "already
+                    // registered" and trusting logout alone isn't enough — logout is
+                    // intentionally best-effort so a push API hiccup never blocks signing
+                    // out, so this is where that gap actually gets closed: whoever is
+                    // signed in now forces the token to point at them, every time they sign
+                    // in, regardless of what happened at whatever the last sign-out was.
+                    Log.i(TAG, "Already registered — clearing and re-registering for the current account")
+                    ZCatalystApp.getInstance().deregisterNotification(
+                        token, BUNDLE_ID, CATALYST_APP_ID, true,
+                        { registerToken(token, isRetry = true) },
+                        { de -> Log.w(TAG, "Could not clear stale registration: ${de.message}") },
+                    )
+                } else if (isRetry) {
+                    Log.w(TAG, "registerNotification retry failed: ${e.message}")
                 } else {
                     Log.w(TAG, "registerNotification failed: ${e.message}")
                 }
