@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,14 +25,50 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bonzaa.app.UiState
 import com.bonzaa.app.data.Suspect
+import com.bonzaa.app.data.SuspectAnalysis
 import com.bonzaa.app.data.SymptomLog
+import com.bonzaa.app.ui.Lang
 import com.bonzaa.app.ui.theme.DangerRed
 import com.bonzaa.app.ui.theme.Honey
 import com.bonzaa.app.ui.theme.Sage
 import com.bonzaa.app.ui.theme.Terracotta
+
+/**
+ * Plain-text version of the same analysis, for handing to a vet — WhatsApp,
+ * SMS, email, or just read off the screen. Kept in the app's current
+ * language so it matches what the family already sees on screen.
+ */
+private fun buildVetSummary(lang: Lang, puppyName: String, symptom: SymptomLog, analysis: SuspectAnalysis): String {
+    val lines = mutableListOf(
+        "🐾 Bonzaa — ${lang["vet_share_title"]}",
+        lang.fmt("vet_share_for", puppyName),
+        "",
+        "${lang.sym(symptom.symptom).replaceFirstChar(Char::uppercase)} (${lang[symptom.severity ?: "mild"]}) · ${lang["onset_at"]} ${symptom.onsetAt.take(16)}",
+        "",
+    )
+    if (analysis.suspects.isEmpty()) {
+        lines += lang["no_window_meals"]
+    } else {
+        lines += "${lang["suspects_title"]}:"
+        analysis.suspects.forEachIndexed { i, s ->
+            val bits = listOfNotNull(
+                s.brand?.takeIf { it.isNotBlank() },
+                lang.fmt("in_window", s.feedingsInWindow.size),
+                if (s.precededPriorIncidents > 0) lang.fmt("before_incidents", s.precededPriorIncidents) else null,
+                lang.fmt("last14", s.fedTimesInLast14Days),
+            ).joinToString(" · ")
+            lines += "${i + 1}. ${s.name}${if (s.wasNewFood) " [${lang["new_food_badge"]}]" else ""} — %.1f".format(s.score)
+            lines += "   $bits"
+        }
+    }
+    lines += ""
+    lines += "⚕️ ${lang["vet_note"]}"
+    return lines.joinToString("\n")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +110,7 @@ fun InsightsScreen(
 
     val analysis = state.analysis
     if (analysis != null) {
+        val context = LocalContext.current
         ModalBottomSheet(onDismissRequest = onDismissAnalysis) {
             Column(
                 modifier = Modifier
@@ -104,6 +142,20 @@ fun InsightsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                state.analysisFor?.let { symptom ->
+                    Button(
+                        onClick = {
+                            val puppyName = state.selectedPuppy?.name ?: lang["your_puppy"]
+                            val text = buildVetSummary(lang, puppyName, symptom, analysis)
+                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, text)
+                            }
+                            context.startActivity(android.content.Intent.createChooser(intent, lang["share_vet"]))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(lang["share_vet"]) }
+                }
             }
         }
     }
