@@ -37,6 +37,12 @@ const SUSPECT_WINDOW_MIN_HOURS = 2;
 const SUSPECT_WINDOW_MAX_HOURS = 48;
 const BASELINE_DAYS = 14; // frequency baseline for down-weighting everyday foods
 
+// Console > Notify > Push Notifications > Android > Android Configuration ID.
+// Both registerNotification() on the client and pushNotification().mobile()
+// here key off this same id — it identifies the push channel, not the
+// Firebase project or the Catalyst project itself.
+const PUSH_APP_ID = '5433000043323270';
+
 class ApiError extends Error {
 	constructor(httpStatus, body) {
 		super(typeof body === 'string' ? body : body.error);
@@ -175,6 +181,37 @@ async function assertRowInHousehold(app, tableName, rowId, householdId) {
 	if (Number(row.HouseholdId) !== householdId) {
 		throw new ApiError(403, 'This belongs to a different family');
 	}
+}
+
+/* ---------- family activity push ---------- */
+// Real-time push, not a database record: nothing here is queryable by the
+// clients, it only reaches whichever devices already called
+// ZCatalystApp.registerNotification() while signed in. Delivery failures
+// (unregistered device, revoked token) are swallowed per-recipient so one
+// stale phone in the family never breaks the symptom log for everyone else.
+
+async function notifyHouseholdOfSymptom(app, ctx, puppyId, symptom, severity) {
+	const zcql = app.zcql();
+	const puppy = await zcqlOne(zcql, `SELECT Name FROM Puppies WHERE ROWID = ${Number(puppyId)}`, 'Puppies');
+	const others = await zcqlAll(
+		zcql,
+		`SELECT CatalystUserId FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} ` +
+		`AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
+		'HouseholdMembers'
+	);
+	if (!others.length) return;
+
+	const puppyName = puppy ? puppy.Name : 'your puppy';
+	const actor = [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || 'Someone';
+	const message = `${actor} logged ${symptom}${severity ? ` (${severity})` : ''} for ${puppyName}`;
+	const mobile = app.pushNotification().mobile(PUSH_APP_ID);
+
+	await Promise.all(others.map((m) =>
+		mobile.sendAndroidNotification(
+			{ message, additional_info: { type: 'symptom_logged', puppy_id: String(puppyId) } },
+			m.CatalystUserId
+		).catch((e) => console.error('push failed for', m.CatalystUserId, e.message || e))
+	));
 }
 
 /* ---------- suspect scoring ---------- */
@@ -580,6 +617,10 @@ const routes = {
 		// Immediately return the suspect analysis for this incident
 		const analysis = await computeSuspects(app, body.puppy_id, body.onset_at);
 		sendJson(res, 201, { symptom: row, analysis });
+		// The person logging it doesn't need to wait on push delivery, but the
+		// function must stay alive until it's attempted — await after responding.
+		await notifyHouseholdOfSymptom(app, ctx, body.puppy_id, body.symptom, body.severity)
+			.catch((e) => console.error('notifyHouseholdOfSymptom failed:', e));
 	},
 
 	'DELETE /symptoms': async (app, req, res, query, ctx) => {

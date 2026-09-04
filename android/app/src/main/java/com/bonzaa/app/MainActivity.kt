@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         com.bonzaa.app.data.CatalystAuth.init(this)
         Reminders.ensureChannel(this)
         Reminders.scheduleAll(this)
+        PushNotifications.ensureChannel(this)
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -116,7 +117,10 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     var showFamilySheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(signedIn) {
-        if (signedIn) vm.checkHousehold()
+        if (signedIn) {
+            vm.checkHousehold()
+            PushNotifications.registerDevice()
+        }
     }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalLang provides lang) {

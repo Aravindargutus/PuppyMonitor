@@ -23,3 +23,7 @@ android/keystore.properties
 # Catalyst mobile SDK config — contains the OAuth clientSecret.
 # Download per-developer from Console > Mobile SDK > your package.
 android/app/src/main/assets/app_configuration_*.properties
+
+# Firebase config — ties the app to our Firebase project (push notifications).
+# Download per-developer from Firebase Console > Project settings > Your apps.
+android/app/google-services.json
