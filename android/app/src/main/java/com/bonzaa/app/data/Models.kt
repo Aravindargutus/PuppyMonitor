@@ -118,6 +118,24 @@ data class SuspectAnalysis(
     val suspects: List<Suspect> = emptyList(),
 )
 
+@Serializable
+data class Household(
+    val id: Long,
+    val name: String,
+    @SerialName("invite_code") val inviteCode: String,
+    @SerialName("is_head") val isHead: Boolean,
+    val role: String,
+)
+
+@Serializable
+data class HouseholdMember(
+    @SerialName("user_id") val userId: String,
+    val email: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    val role: String,
+    @SerialName("joined_at") val joinedAt: String? = null,
+)
+
 /* ---------- response wrappers ---------- */
 
 @Serializable data class PuppiesResponse(val puppies: List<Puppy>)
@@ -129,6 +147,14 @@ data class SuspectAnalysis(
 @Serializable data class SymptomsResponse(val symptoms: List<SymptomLog>)
 @Serializable data class SymptomCreateResponse(val symptom: SymptomLog, val analysis: SuspectAnalysis)
 @Serializable data class DeleteResponse(val deleted: String)
+@Serializable data class HouseholdResponse(
+    val household: Household? = null,
+    val members: List<HouseholdMember> = emptyList(),
+    @SerialName("your_user_id") val yourUserId: String? = null,
+)
+@Serializable data class HouseholdCreateResponse(val household: Household)
+@Serializable data class LeftResponse(val left: Boolean = true)
+@Serializable data class RemovedResponse(val removed: String)
 
 /* ---------- request bodies ---------- */
 
@@ -170,6 +196,12 @@ data class NewFeeding(
     @SerialName("is_new_food") val isNewFood: Boolean = false,
     val notes: String? = null,
 )
+
+@Serializable
+data class NewHousehold(val name: String)
+
+@Serializable
+data class JoinHousehold(@SerialName("invite_code") val inviteCode: String)
 
 @Serializable
 data class NewSymptom(

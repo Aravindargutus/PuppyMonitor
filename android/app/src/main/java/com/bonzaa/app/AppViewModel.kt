@@ -5,8 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.bonzaa.app.data.ApiClient
 import com.bonzaa.app.data.Feeding
 import com.bonzaa.app.data.FoodItem
+import com.bonzaa.app.data.Household
+import com.bonzaa.app.data.HouseholdMember
+import com.bonzaa.app.data.JoinHousehold
 import com.bonzaa.app.data.NewFeeding
 import com.bonzaa.app.data.NewFood
+import com.bonzaa.app.data.NewHousehold
 import com.bonzaa.app.data.NewPuppy
 import com.bonzaa.app.data.NewSymptom
 import com.bonzaa.app.data.Puppy
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -31,9 +36,20 @@ data class UiState(
     val symptoms: List<SymptomLog> = emptyList(),
     val analysis: SuspectAnalysis? = null,
     val analysisFor: SymptomLog? = null,
+    // null while unchecked; false once GET /household confirms membership.
+    val needsHousehold: Boolean? = null,
+    val household: Household? = null,
+    val householdMembers: List<HouseholdMember> = emptyList(),
+    val yourUserId: String? = null,
 ) {
     val selectedPuppy: Puppy? get() = puppies.find { it.id == selectedPuppyId }
     fun foodName(id: String): String = foods.find { it.id == id }?.name ?: "Unknown food"
+}
+
+private fun Throwable.isNoHouseholdError(): Boolean {
+    if (this !is HttpException || code() != 409) return false
+    val body = response()?.errorBody()?.string() ?: return false
+    return body.contains("no_household")
 }
 
 class AppViewModel : ViewModel() {
@@ -54,10 +70,16 @@ class AppViewModel : ViewModel() {
                 block()
                 _state.value = _state.value.copy(loading = false)
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    loading = false,
-                    error = e.message ?: "Something went wrong",
-                )
+                if (e.isNoHouseholdError()) {
+                    // Every data route 409s this way until a household exists — route to
+                    // onboarding instead of surfacing it as a generic error.
+                    _state.value = _state.value.copy(loading = false, needsHousehold = true)
+                } else {
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        error = e.message ?: "Something went wrong",
+                    )
+                }
             }
         }
     }
@@ -66,7 +88,64 @@ class AppViewModel : ViewModel() {
         _state.value = _state.value.copy(error = null)
     }
 
-    fun refreshAll() = launchSafe {
+    /** Call once right after sign-in: resolves household membership, then loads data if any. */
+    fun checkHousehold() = launchSafe {
+        val r = api.getHousehold()
+        _state.value = _state.value.copy(
+            household = r.household,
+            householdMembers = r.members,
+            yourUserId = r.yourUserId,
+            needsHousehold = r.household == null,
+        )
+        if (r.household != null) refreshAllInternal()
+    }
+
+    fun createHousehold(name: String) = launchSafe {
+        val r = api.createHousehold(NewHousehold(name))
+        _state.value = _state.value.copy(household = r.household, needsHousehold = false)
+        refreshAllInternal()
+    }
+
+    fun joinHousehold(inviteCode: String) = launchSafe {
+        val r = api.joinHousehold(JoinHousehold(inviteCode))
+        _state.value = _state.value.copy(household = r.household, needsHousehold = false)
+        refreshAllInternal()
+    }
+
+    /** Refreshes the family roster + invite code — call when opening the family panel. */
+    fun loadFamily() = launchSafe {
+        val r = api.getHousehold()
+        _state.value = _state.value.copy(
+            household = r.household,
+            householdMembers = r.members,
+            yourUserId = r.yourUserId,
+            needsHousehold = r.household == null,
+        )
+    }
+
+    fun removeFamilyMember(userId: String) = launchSafe {
+        api.removeMember(userId)
+        val r = api.getHousehold()
+        _state.value = _state.value.copy(household = r.household, householdMembers = r.members, yourUserId = r.yourUserId)
+    }
+
+    fun leaveFamily() = launchSafe {
+        api.leaveHousehold()
+        _state.value = _state.value.copy(
+            household = null,
+            householdMembers = emptyList(),
+            needsHousehold = true,
+            puppies = emptyList(),
+            foods = emptyList(),
+            feedings = emptyList(),
+            symptoms = emptyList(),
+            selectedPuppyId = null,
+        )
+    }
+
+    fun refreshAll() = launchSafe { refreshAllInternal() }
+
+    private suspend fun refreshAllInternal() {
         val puppies = api.getPuppies().puppies
         val foods = api.getFoods().foods
         val selected = _state.value.selectedPuppyId

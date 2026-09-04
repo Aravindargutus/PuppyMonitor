@@ -1,6 +1,24 @@
 {
-  "_comment": "Data Store schema for the Bonzaa puppy food tracker. ROWID/CREATORID/CREATEDTIME/MODIFIEDTIME are auto-added by Catalyst — do not create them. Booleans are stored as 'true'/'false' strings at the API boundary.",
+  "_comment": "Data Store schema for the Bonzaa puppy food tracker. ROWID/CREATORID/CREATEDTIME/MODIFIEDTIME are auto-added by Catalyst — do not create them. Booleans are stored as 'true'/'false' strings at the API boundary. Households/HouseholdMembers were added 2026-09-03 to isolate each family's data from every other family's; every other table's data belongs to exactly one household (Puppies/FoodItems directly via HouseholdId, FeedingLogs/SymptomLogs transitively via PuppyId).",
   "tables": [
+    {
+      "table_name": "Households",
+      "columns": [
+        { "column_name": "Name", "data_type": "varchar", "max_length": 150, "is_mandatory": true },
+        { "column_name": "InviteCode", "data_type": "varchar", "max_length": 12, "is_mandatory": true, "is_unique": true },
+        { "column_name": "HeadUserId", "data_type": "varchar", "max_length": 30, "is_mandatory": true }
+      ]
+    },
+    {
+      "table_name": "HouseholdMembers",
+      "columns": [
+        { "column_name": "HouseholdId", "data_type": "bigint", "is_mandatory": true },
+        { "column_name": "CatalystUserId", "data_type": "varchar", "max_length": 30, "is_mandatory": true, "is_unique": true },
+        { "column_name": "Email", "data_type": "varchar", "max_length": 150 },
+        { "column_name": "DisplayName", "data_type": "varchar", "max_length": 150 },
+        { "column_name": "Role", "data_type": "varchar", "max_length": 20, "is_mandatory": true, "_comment": "'head' | 'member'" }
+      ]
+    },
     {
       "table_name": "Puppies",
       "columns": [
@@ -8,7 +26,8 @@
         { "column_name": "Breed", "data_type": "varchar", "max_length": 100 },
         { "column_name": "BirthDate", "data_type": "date" },
         { "column_name": "PhotoUrl", "data_type": "text" },
-        { "column_name": "Notes", "data_type": "text" }
+        { "column_name": "Notes", "data_type": "text" },
+        { "column_name": "HouseholdId", "data_type": "bigint" }
       ]
     },
     {
@@ -17,7 +36,9 @@
         { "column_name": "Name", "data_type": "varchar", "max_length": 150, "is_mandatory": true },
         { "column_name": "Brand", "data_type": "varchar", "max_length": 100 },
         { "column_name": "FoodType", "data_type": "varchar", "max_length": 50 },
-        { "column_name": "Notes", "data_type": "text" }
+        { "column_name": "Notes", "data_type": "text" },
+        { "column_name": "UsualPuppyId", "data_type": "bigint" },
+        { "column_name": "HouseholdId", "data_type": "bigint" }
       ]
     },
     {

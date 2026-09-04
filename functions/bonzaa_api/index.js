@@ -6,12 +6,26 @@ const catalyst = require('zcatalyst-sdk-node');
  * Bonzaa Puppy Food Tracker — Advanced I/O API
  *
  * Tables (Data Store):
- *   Puppies     : Name, Breed, BirthDate(date), PhotoUrl(text), Notes(text)
- *   FoodItems   : Name, Brand, FoodType, Notes(text)
- *   FeedingLogs : PuppyId(bigint), FoodItemId(bigint), Quantity(double), Unit,
- *                 MealSlot, FedAt(datetime 'YYYY-MM-DD HH:mm:ss'), FedBy,
- *                 IsNewFood(boolean), Notes(text)
- *   SymptomLogs : PuppyId(bigint), Symptom, Severity, OnsetAt(datetime), Notes(text)
+ *   Households      : Name, InviteCode(varchar, unique), HeadUserId(varchar)
+ *   HouseholdMembers: HouseholdId(bigint), CatalystUserId(varchar, unique),
+ *                     Email, DisplayName, Role('head'|'member')
+ *   Puppies         : Name, Breed, BirthDate(date), PhotoUrl(text), Notes(text),
+ *                     HouseholdId(bigint)
+ *   FoodItems       : Name, Brand, FoodType, Notes(text), UsualPuppyId(bigint),
+ *                     HouseholdId(bigint)
+ *   FeedingLogs     : PuppyId(bigint), FoodItemId(bigint), Quantity(double), Unit,
+ *                     MealSlot, FedAt(datetime 'YYYY-MM-DD HH:mm:ss'), FedBy,
+ *                     IsNewFood(boolean), Notes(text)
+ *   SymptomLogs     : PuppyId(bigint), Symptom, Severity, OnsetAt(datetime), Notes(text)
+ *
+ * A puppy, and everything under it, belongs to exactly one household. Every
+ * data route is scoped to the caller's household — resolved once per request
+ * from HouseholdMembers, keyed by the signed-in Catalyst user id — so one
+ * family's sign-ins never see another family's puppies, foods, feedings, or
+ * symptoms. FeedingLogs/SymptomLogs carry no HouseholdId of their own: they
+ * are scoped transitively through the PuppyId they point at, which is
+ * cheaper than denormalizing and just as strict, since every access to them
+ * already requires a puppy_id.
  *
  * Datetimes are handled as 'YYYY-MM-DD HH:mm:ss' strings in the project
  * timezone throughout — string comparison keeps ordering correct and avoids
@@ -22,6 +36,14 @@ const catalyst = require('zcatalyst-sdk-node');
 const SUSPECT_WINDOW_MIN_HOURS = 2;
 const SUSPECT_WINDOW_MAX_HOURS = 48;
 const BASELINE_DAYS = 14; // frequency baseline for down-weighting everyday foods
+
+class ApiError extends Error {
+	constructor(httpStatus, body) {
+		super(typeof body === 'string' ? body : body.error);
+		this.httpStatus = httpStatus;
+		this.body = typeof body === 'string' ? { error: body } : body;
+	}
+}
 
 function sendJson(res, statusCode, data) {
 	res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -66,6 +88,14 @@ function isValidDatetime(s) {
 	return typeof s === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(s);
 }
 
+function randomInviteCode() {
+	// Avoids 0/O/1/I so a family reading it aloud (or squinting at a phone) never confuses characters.
+	const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+	let out = '';
+	for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+	return out;
+}
+
 async function zcqlAll(zcql, baseQuery, tableName) {
 	// ZCQL hard limit: 300 rows/query — paginate until short page.
 	const PAGE = 300;
@@ -79,6 +109,72 @@ async function zcqlAll(zcql, baseQuery, tableName) {
 		offset += PAGE;
 	}
 	return all;
+}
+
+async function zcqlOne(zcql, baseQuery, tableName) {
+	const rows = await zcqlAll(zcql, baseQuery, tableName);
+	return rows[0] || null;
+}
+
+/* ---------- household membership ---------- */
+
+async function getMembership(app, catalystUserId) {
+	const zcql = app.zcql();
+	const membership = await zcqlOne(
+		zcql,
+		`SELECT ROWID, HouseholdId, Role FROM HouseholdMembers WHERE CatalystUserId = '${esc(catalystUserId)}'`,
+		'HouseholdMembers'
+	);
+	if (!membership) return null;
+	const household = await zcqlOne(
+		zcql,
+		`SELECT ROWID, Name, InviteCode, HeadUserId FROM Households WHERE ROWID = ${Number(membership.HouseholdId)}`,
+		'Households'
+	);
+	if (!household) return null;
+	return {
+		id: Number(household.ROWID),
+		name: household.Name,
+		invite_code: household.InviteCode,
+		is_head: membership.Role === 'head',
+		role: membership.Role
+	};
+}
+
+// Every data route (everything but /health and /household*) needs a household.
+// Thrown as a typed error so the dispatcher can tell the client to onboard
+// rather than treating it as a server fault.
+function requireHousehold(household) {
+	if (!household) {
+		throw new ApiError(409, { error: 'no_household', message: 'Join or create a family first.' });
+	}
+	return household;
+}
+
+async function assertPuppyInHousehold(app, puppyId, householdId) {
+	const zcql = app.zcql();
+	const puppy = await zcqlOne(
+		zcql,
+		`SELECT ROWID, HouseholdId FROM Puppies WHERE ROWID = ${Number(puppyId)}`,
+		'Puppies'
+	);
+	if (!puppy) throw new ApiError(404, 'Puppy not found');
+	if (Number(puppy.HouseholdId) !== householdId) {
+		throw new ApiError(403, 'This puppy belongs to a different family');
+	}
+}
+
+async function assertRowInHousehold(app, tableName, rowId, householdId) {
+	const zcql = app.zcql();
+	const row = await zcqlOne(
+		zcql,
+		`SELECT ROWID, HouseholdId FROM ${tableName} WHERE ROWID = ${Number(rowId)}`,
+		tableName
+	);
+	if (!row) throw new ApiError(404, 'Not found');
+	if (Number(row.HouseholdId) !== householdId) {
+		throw new ApiError(403, 'This belongs to a different family');
+	}
 }
 
 /* ---------- suspect scoring ---------- */
@@ -187,26 +283,148 @@ async function computeSuspects(app, puppyId, onsetAt) {
 	};
 }
 
-async function deleteById(app, res, query, tableName) {
-	const id = Number(query.get('id'));
-	if (!id) return sendJson(res, 400, { error: 'id is required' });
-	await app.datastore().table(tableName).deleteRow(id);
-	sendJson(res, 200, { deleted: String(id) });
-}
-
 /* ---------- route handlers ---------- */
+// Each handler receives (app, req, res, query, ctx) where ctx = { user, household }.
+// household is null only on the /household* routes; every other route is
+// pre-gated by the dispatcher via requireHousehold(), so ctx.household is
+// guaranteed there.
 
 const routes = {
 	'GET /health': async (app, req, res) => {
 		sendJson(res, 200, { status: 'ok', service: 'bonzaa_api' });
 	},
 
-	'GET /puppies': async (app, req, res) => {
-		const rows = await zcqlAll(app.zcql(), 'SELECT * FROM Puppies ORDER BY CREATEDTIME', 'Puppies');
+	/* ---- household ---- */
+
+	'GET /household': async (app, req, res, query, ctx) => {
+		if (!ctx.household) return sendJson(res, 200, { household: null, members: [], your_user_id: String(ctx.user.user_id) });
+		const zcql = app.zcql();
+		const memberRows = await zcqlAll(
+			zcql,
+			`SELECT CatalystUserId, Email, DisplayName, Role, CREATEDTIME FROM HouseholdMembers ` +
+			`WHERE HouseholdId = ${ctx.household.id} ORDER BY CREATEDTIME`,
+			'HouseholdMembers'
+		);
+		sendJson(res, 200, {
+			household: ctx.household,
+			your_user_id: String(ctx.user.user_id),
+			members: memberRows.map((m) => ({
+				user_id: m.CatalystUserId,
+				email: m.Email,
+				display_name: m.DisplayName,
+				role: m.Role,
+				joined_at: m.CREATEDTIME
+			}))
+		});
+	},
+
+	'POST /household': async (app, req, res, query, ctx) => {
+		if (ctx.household) return sendJson(res, 409, { error: 'You already belong to a family' });
+		const body = await getBody(req);
+		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
+		const zcql = app.zcql();
+		let inviteCode;
+		// InviteCode is unique — collisions are astronomically unlikely at this
+		// scale, but retry rather than trust it blindly.
+		for (let attempt = 0; attempt < 5; attempt++) {
+			const candidate = randomInviteCode();
+			const clash = await zcqlOne(zcql, `SELECT ROWID FROM Households WHERE InviteCode = '${candidate}'`, 'Households');
+			if (!clash) { inviteCode = candidate; break; }
+		}
+		if (!inviteCode) return sendJson(res, 500, { error: 'Could not allocate an invite code, try again' });
+
+		const household = await app.datastore().table('Households').insertRow({
+			Name: body.name,
+			InviteCode: inviteCode,
+			HeadUserId: String(ctx.user.user_id)
+		});
+		await app.datastore().table('HouseholdMembers').insertRow({
+			HouseholdId: Number(household.ROWID),
+			CatalystUserId: String(ctx.user.user_id),
+			Email: ctx.user.email_id || '',
+			DisplayName: [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || '',
+			Role: 'head'
+		});
+		sendJson(res, 201, {
+			household: { id: Number(household.ROWID), name: household.Name, invite_code: household.InviteCode, is_head: true, role: 'head' }
+		});
+	},
+
+	'POST /household/join': async (app, req, res, query, ctx) => {
+		if (ctx.household) return sendJson(res, 409, { error: 'You already belong to a family' });
+		const body = await getBody(req);
+		const code = (body.invite_code || '').trim().toUpperCase();
+		if (!code) return sendJson(res, 400, { error: 'invite_code is required' });
+		const zcql = app.zcql();
+		const household = await zcqlOne(zcql, `SELECT ROWID, Name, InviteCode FROM Households WHERE InviteCode = '${esc(code)}'`, 'Households');
+		if (!household) return sendJson(res, 404, { error: 'No family found with that invite code' });
+
+		await app.datastore().table('HouseholdMembers').insertRow({
+			HouseholdId: Number(household.ROWID),
+			CatalystUserId: String(ctx.user.user_id),
+			Email: ctx.user.email_id || '',
+			DisplayName: [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || '',
+			Role: 'member'
+		});
+		sendJson(res, 201, {
+			household: { id: Number(household.ROWID), name: household.Name, invite_code: household.InviteCode, is_head: false, role: 'member' }
+		});
+	},
+
+	'POST /household/leave': async (app, req, res, query, ctx) => {
+		if (!ctx.household) return sendJson(res, 409, { error: 'no_household', message: 'You are not in a family' });
+		const zcql = app.zcql();
+		if (ctx.household.is_head) {
+			const others = await zcqlOne(
+				zcql,
+				`SELECT ROWID FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
+				'HouseholdMembers'
+			);
+			if (others) {
+				return sendJson(res, 400, { error: 'Remove the other members first, or have someone else become head' });
+			}
+		}
+		const membership = await zcqlOne(
+			zcql,
+			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
+			'HouseholdMembers'
+		);
+		if (membership) await app.datastore().table('HouseholdMembers').deleteRow(Number(membership.ROWID));
+		if (ctx.household.is_head) {
+			await app.datastore().table('Households').deleteRow(ctx.household.id);
+		}
+		sendJson(res, 200, { left: true });
+	},
+
+	'DELETE /household/members': async (app, req, res, query, ctx) => {
+		if (!ctx.household) return sendJson(res, 409, { error: 'no_household' });
+		if (!ctx.household.is_head) return sendJson(res, 403, { error: 'Only the head of the family can remove members' });
+		const targetUserId = query.get('user_id');
+		if (!targetUserId) return sendJson(res, 400, { error: 'user_id is required' });
+		if (targetUserId === String(ctx.user.user_id)) {
+			return sendJson(res, 400, { error: 'Use leave, not remove, for yourself' });
+		}
+		const zcql = app.zcql();
+		const member = await zcqlOne(
+			zcql,
+			`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
+			'HouseholdMembers'
+		);
+		if (!member || Number(member.HouseholdId) !== ctx.household.id) {
+			return sendJson(res, 404, { error: 'Not a member of your family' });
+		}
+		await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
+		sendJson(res, 200, { removed: targetUserId });
+	},
+
+	/* ---- puppies ---- */
+
+	'GET /puppies': async (app, req, res, query, ctx) => {
+		const rows = await zcqlAll(app.zcql(), `SELECT * FROM Puppies WHERE HouseholdId = ${ctx.household.id} ORDER BY CREATEDTIME`, 'Puppies');
 		sendJson(res, 200, { puppies: rows });
 	},
 
-	'POST /puppies': async (app, req, res) => {
+	'POST /puppies': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
 		const row = await app.datastore().table('Puppies').insertRow({
@@ -214,32 +432,47 @@ const routes = {
 			Breed: body.breed || '',
 			BirthDate: body.birth_date || null,
 			PhotoUrl: body.photo_url || '',
-			Notes: body.notes || ''
+			Notes: body.notes || '',
+			HouseholdId: ctx.household.id
 		});
 		sendJson(res, 201, { puppy: row });
 	},
 
-	'GET /foods': async (app, req, res) => {
-		const rows = await zcqlAll(app.zcql(), 'SELECT * FROM FoodItems ORDER BY Name', 'FoodItems');
+	'DELETE /puppies': async (app, req, res, query, ctx) => {
+		const id = Number(query.get('id'));
+		if (!id) return sendJson(res, 400, { error: 'id is required' });
+		await assertRowInHousehold(app, 'Puppies', id, ctx.household.id);
+		await app.datastore().table('Puppies').deleteRow(id);
+		sendJson(res, 200, { deleted: String(id) });
+	},
+
+	/* ---- foods ---- */
+
+	'GET /foods': async (app, req, res, query, ctx) => {
+		const rows = await zcqlAll(app.zcql(), `SELECT * FROM FoodItems WHERE HouseholdId = ${ctx.household.id} ORDER BY Name`, 'FoodItems');
 		sendJson(res, 200, { foods: rows });
 	},
 
-	'POST /foods': async (app, req, res) => {
+	'POST /foods': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
+		if (body.usual_puppy_id) await assertPuppyInHousehold(app, body.usual_puppy_id, ctx.household.id);
 		const row = await app.datastore().table('FoodItems').insertRow({
 			Name: body.name,
 			Brand: body.brand || '',
 			FoodType: body.food_type || 'other',
 			Notes: body.notes || '',
+			HouseholdId: ctx.household.id,
 			...(body.usual_puppy_id ? { UsualPuppyId: Number(body.usual_puppy_id) } : {})
 		});
 		sendJson(res, 201, { food: row });
 	},
 
-	'PUT /foods': async (app, req, res) => {
+	'PUT /foods': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		if (!body.id) return sendJson(res, 400, { error: 'id is required' });
+		await assertRowInHousehold(app, 'FoodItems', body.id, ctx.household.id);
+		if (body.usual_puppy_id) await assertPuppyInHousehold(app, body.usual_puppy_id, ctx.household.id);
 		const patch = { ROWID: Number(body.id) };
 		if (body.name != null) patch.Name = body.name;
 		if (body.brand != null) patch.Brand = body.brand;
@@ -253,9 +486,20 @@ const routes = {
 		sendJson(res, 200, { food: row });
 	},
 
-	'GET /feedings': async (app, req, res, query) => {
+	'DELETE /foods': async (app, req, res, query, ctx) => {
+		const id = Number(query.get('id'));
+		if (!id) return sendJson(res, 400, { error: 'id is required' });
+		await assertRowInHousehold(app, 'FoodItems', id, ctx.household.id);
+		await app.datastore().table('FoodItems').deleteRow(id);
+		sendJson(res, 200, { deleted: String(id) });
+	},
+
+	/* ---- feedings ---- */
+
+	'GET /feedings': async (app, req, res, query, ctx) => {
 		const puppyId = Number(query.get('puppy_id'));
 		if (!puppyId) return sendJson(res, 400, { error: 'puppy_id is required' });
+		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		const date = query.get('date'); // YYYY-MM-DD → that day's timeline, morning to night
 		let where = `PuppyId = ${puppyId}`;
 		if (date) where += ` AND FedAt >= '${esc(date)} 00:00:00' AND FedAt <= '${esc(date)} 23:59:59'`;
@@ -268,7 +512,7 @@ const routes = {
 		sendJson(res, 200, { feedings });
 	},
 
-	'POST /feedings': async (app, req, res) => {
+	'POST /feedings': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		const required = ['puppy_id', 'food_item_id', 'fed_at', 'meal_slot'];
 		for (const k of required) {
@@ -277,6 +521,7 @@ const routes = {
 		if (!isValidDatetime(body.fed_at)) {
 			return sendJson(res, 400, { error: "fed_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
+		await assertPuppyInHousehold(app, body.puppy_id, ctx.household.id);
 		const row = await app.datastore().table('FeedingLogs').insertRow({
 			PuppyId: Number(body.puppy_id),
 			FoodItemId: Number(body.food_item_id),
@@ -291,9 +536,22 @@ const routes = {
 		sendJson(res, 201, { feeding: row });
 	},
 
-	'GET /symptoms': async (app, req, res, query) => {
+	'DELETE /feedings': async (app, req, res, query, ctx) => {
+		const id = Number(query.get('id'));
+		if (!id) return sendJson(res, 400, { error: 'id is required' });
+		const row = await zcqlOne(app.zcql(), `SELECT PuppyId FROM FeedingLogs WHERE ROWID = ${id}`, 'FeedingLogs');
+		if (!row) return sendJson(res, 404, { error: 'Not found' });
+		await assertPuppyInHousehold(app, row.PuppyId, ctx.household.id);
+		await app.datastore().table('FeedingLogs').deleteRow(id);
+		sendJson(res, 200, { deleted: String(id) });
+	},
+
+	/* ---- symptoms ---- */
+
+	'GET /symptoms': async (app, req, res, query, ctx) => {
 		const puppyId = Number(query.get('puppy_id'));
 		if (!puppyId) return sendJson(res, 400, { error: 'puppy_id is required' });
+		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		const rows = await zcqlAll(
 			app.zcql(),
 			`SELECT * FROM SymptomLogs WHERE PuppyId = ${puppyId} ORDER BY OnsetAt DESC`,
@@ -302,7 +560,7 @@ const routes = {
 		sendJson(res, 200, { symptoms: rows });
 	},
 
-	'POST /symptoms': async (app, req, res) => {
+	'POST /symptoms': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		const required = ['puppy_id', 'symptom', 'onset_at'];
 		for (const k of required) {
@@ -311,6 +569,7 @@ const routes = {
 		if (!isValidDatetime(body.onset_at)) {
 			return sendJson(res, 400, { error: "onset_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
+		await assertPuppyInHousehold(app, body.puppy_id, ctx.household.id);
 		const row = await app.datastore().table('SymptomLogs').insertRow({
 			PuppyId: Number(body.puppy_id),
 			Symptom: body.symptom,
@@ -323,12 +582,17 @@ const routes = {
 		sendJson(res, 201, { symptom: row, analysis });
 	},
 
-	'DELETE /puppies': async (app, req, res, query) => deleteById(app, res, query, 'Puppies'),
-	'DELETE /foods': async (app, req, res, query) => deleteById(app, res, query, 'FoodItems'),
-	'DELETE /feedings': async (app, req, res, query) => deleteById(app, res, query, 'FeedingLogs'),
-	'DELETE /symptoms': async (app, req, res, query) => deleteById(app, res, query, 'SymptomLogs'),
+	'DELETE /symptoms': async (app, req, res, query, ctx) => {
+		const id = Number(query.get('id'));
+		if (!id) return sendJson(res, 400, { error: 'id is required' });
+		const row = await zcqlOne(app.zcql(), `SELECT PuppyId FROM SymptomLogs WHERE ROWID = ${id}`, 'SymptomLogs');
+		if (!row) return sendJson(res, 404, { error: 'Not found' });
+		await assertPuppyInHousehold(app, row.PuppyId, ctx.household.id);
+		await app.datastore().table('SymptomLogs').deleteRow(id);
+		sendJson(res, 200, { deleted: String(id) });
+	},
 
-	'GET /suspects': async (app, req, res, query) => {
+	'GET /suspects': async (app, req, res, query, ctx) => {
 		const puppyId = Number(query.get('puppy_id'));
 		const onsetAt = query.get('onset_at');
 		if (!puppyId || !onsetAt) {
@@ -337,10 +601,14 @@ const routes = {
 		if (!isValidDatetime(onsetAt)) {
 			return sendJson(res, 400, { error: "onset_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
+		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		const analysis = await computeSuspects(app, puppyId, onsetAt);
 		sendJson(res, 200, analysis);
 	}
 };
+
+// Routes that make sense with no household yet (or manage membership itself).
+const HOUSEHOLD_EXEMPT = new Set(['GET /health', 'GET /household', 'POST /household', 'POST /household/join', 'POST /household/leave']);
 
 /*
  * Application-level auth gate. Catalyst Security Rules are managed server-side
@@ -349,15 +617,17 @@ const routes = {
  * user session, so getCurrentUser() fails and we reject with 401. Requests
  * from the logged-in web client (session cookie) and the Android client
  * (Zoho-oauthtoken) resolve to a real user and pass. Data operations still
- * run at admin scope so App User table permissions don't block them.
+ * run at admin scope so App User table permissions don't block them — the
+ * household check below is what actually keeps one family's data away from
+ * another's, not the table permissions.
  */
-async function isAuthenticated(req) {
+async function getUser(req) {
 	try {
 		const userApp = catalyst.initialize(req); // user scope
 		const user = await userApp.userManagement().getCurrentUser();
-		return !!(user && user.user_id);
+		return user && user.user_id ? user : null;
 	} catch (e) {
-		return false;
+		return null;
 	}
 }
 
@@ -368,14 +638,22 @@ module.exports = async (req, res) => {
 	if (!handler) {
 		return sendJson(res, 404, { error: 'Not found' });
 	}
-	// /health stays public for uptime checks; every data route requires auth.
-	if (key !== 'GET /health' && !(await isAuthenticated(req))) {
-		return sendJson(res, 401, { error: 'Authentication required' });
+	if (key === 'GET /health') {
+		return handler(null, req, res, url.searchParams, {});
 	}
+
+	const user = await getUser(req);
+	if (!user) return sendJson(res, 401, { error: 'Authentication required' });
+
 	try {
 		const app = catalyst.initialize(req, { scope: 'admin' });
-		await handler(app, req, res, url.searchParams);
+		const household = await getMembership(app, user.user_id);
+		if (!HOUSEHOLD_EXEMPT.has(key)) requireHousehold(household);
+		await handler(app, req, res, url.searchParams, { user, household });
 	} catch (err) {
+		if (err instanceof ApiError) {
+			return sendJson(res, err.httpStatus, err.body);
+		}
 		// Log details server-side; return a generic message so schema/internal
 		// details are not disclosed to clients.
 		console.error('bonzaa_api error:', err);

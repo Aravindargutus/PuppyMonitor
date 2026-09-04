@@ -38,6 +38,8 @@ const T = {
     in_window: (x) => `${x}× in the 2–48h window`, last14: (x) => `${x}× in last 14 days`,
     before_incidents: (x) => `before ${x} earlier incident(s)`, new_food_badge: 'NEW FOOD',
     vet_note: 'Correlation aid only — confirm with a veterinarian.',
+    share_vet: '🩺 Share with vet', share_vet_copied: 'Copied — paste it for your vet',
+    vet_share_title: 'Possible food suspects', vet_share_for: (n) => `For ${n}`,
     no_window_meals: 'No meals were logged in the 2–48 hours before it started, so there is nothing to analyze. Keep logging every meal for better results.',
     insights_hint: 'Tap an incident to see which foods were the likely cause.',
     no_incidents_title: 'No incidents logged',
@@ -67,6 +69,28 @@ const T = {
     delete_food_q: (n) => `Delete ${n}?`,
     delete_food_msg: 'Past meals of this food will show as unknown food, and it will drop out of old suspect reports. This cannot be undone.',
     t_food_deleted: 'Food deleted', unknown_food: 'Unknown food',
+    hh_tagline: 'One family, one shared list of puppies',
+    hh_checking: 'Checking your family…',
+    hh_create_title: 'Start a family',
+    hh_join_title: 'Join a family',
+    hh_to_join: 'Have an invite code? Join instead',
+    hh_to_create: "Don't have a code? Start a new family",
+    hh_name: 'Family name', hh_name_ph: 'e.g. Durgaraj Family',
+    hh_create_btn: 'Create family', hh_creating: 'Creating…',
+    hh_code: 'Invite code', hh_code_ph: 'e.g. PUP7X2QK',
+    hh_join_btn: 'Join family', hh_joining: 'Joining…',
+    hh_need_name: 'Give your family a name',
+    hh_need_code: 'Enter the invite code',
+    hh_created: (n) => `${n} created 🎉`, hh_joined: (n) => `Joined ${n} 🎉`,
+    hh_panel_title: '👨‍👩‍👧 Family',
+    hh_invite_label: 'Invite code — share this with family to add them',
+    hh_copy: 'Copy', hh_copied: 'Copied!',
+    hh_members: 'Members', hh_you: 'you', hh_head: 'head',
+    hh_remove: 'Remove', hh_leave: 'Leave family',
+    hh_leave_q: 'Leave this family?', hh_leave_msg: 'You will need an invite code to rejoin.',
+    hh_remove_q: (n) => `Remove ${n} from the family?`,
+    hh_left: 'You left the family', hh_member_removed: (n) => `${n} removed`,
+    hh_head_leave_blocked: 'Remove the other members first, or ask them to leave',
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
       'black drool': 'black drool', 'excessive drooling': 'excessive drooling',
@@ -109,6 +133,8 @@ const T = {
     in_window: (x) => `2–48மணி இடைவெளியில் ${x}×`, last14: (x) => `கடந்த 14 நாட்களில் ${x}×`,
     before_incidents: (x) => `முந்தைய ${x} சம்பவங்களுக்கு முன்பும்`, new_food_badge: 'புதிய உணவு',
     vet_note: 'இது தொடர்பு அடிப்படையிலான உதவி மட்டுமே — கால்நடை மருத்துவரிடம் உறுதிப்படுத்தவும்.',
+    share_vet: '🩺 மருத்துவரிடம் பகிர்', share_vet_copied: 'நகலெடுக்கப்பட்டது — மருத்துவரிடம் ஒட்டவும்',
+    vet_share_title: 'சாத்தியமான சந்தேக உணவுகள்', vet_share_for: (n) => `${n}-க்கு`,
     no_window_meals: 'தொடங்குவதற்கு முன் 2–48 மணி நேரத்தில் உணவு பதிவுகள் இல்லை. சிறந்த முடிவுகளுக்கு ஒவ்வொரு உணவையும் பதிவு செய்யுங்கள்.',
     insights_hint: 'எந்த உணவு காரணமாக இருக்கலாம் என்று பார்க்க ஒரு சம்பவத்தை தட்டவும்.',
     no_incidents_title: 'சம்பவங்கள் இல்லை',
@@ -138,6 +164,28 @@ const T = {
     delete_food_q: (n) => `${n}-ஐ நீக்கவா?`,
     delete_food_msg: 'இந்த உணவின் பழைய உணவு பதிவுகள் தெரியாத உணவாக காட்டப்படும்; பழைய சந்தேக அறிக்கைகளிலிருந்தும் நீங்கும். இதை மீட்டெடுக்க முடியாது.',
     t_food_deleted: 'உணவு நீக்கப்பட்டது', unknown_food: 'தெரியாத உணவு',
+    hh_tagline: 'ஒரே குடும்பம் — பகிரப்பட்ட குட்டி பட்டியல்',
+    hh_checking: 'உங்கள் குடும்பத்தை சரிபார்க்கிறது…',
+    hh_create_title: 'குடும்பத்தை தொடங்கவும்',
+    hh_join_title: 'குடும்பத்தில் சேரவும்',
+    hh_to_join: 'அழைப்பு குறியீடு உள்ளதா? சேரவும்',
+    hh_to_create: 'குறியீடு இல்லையா? புதிய குடும்பத்தை தொடங்கவும்',
+    hh_name: 'குடும்பத்தின் பெயர்', hh_name_ph: 'எ.கா. துர்கராஜ் குடும்பம்',
+    hh_create_btn: 'குடும்பத்தை உருவாக்கு', hh_creating: 'உருவாக்குகிறது…',
+    hh_code: 'அழைப்பு குறியீடு', hh_code_ph: 'எ.கா. PUP7X2QK',
+    hh_join_btn: 'குடும்பத்தில் சேர்', hh_joining: 'சேர்கிறது…',
+    hh_need_name: 'உங்கள் குடும்பத்திற்கு ஒரு பெயர் கொடுங்கள்',
+    hh_need_code: 'அழைப்பு குறியீட்டை உள்ளிடவும்',
+    hh_created: (n) => `${n} உருவாக்கப்பட்டது 🎉`, hh_joined: (n) => `${n}-இல் சேர்ந்தீர்கள் 🎉`,
+    hh_panel_title: '👨‍👩‍👧 குடும்பம்',
+    hh_invite_label: 'அழைப்பு குறியீடு — குடும்பத்தினரை சேர்க்க இதை பகிரவும்',
+    hh_copy: 'நகலெடு', hh_copied: 'நகலெடுக்கப்பட்டது!',
+    hh_members: 'உறுப்பினர்கள்', hh_you: 'நீங்கள்', hh_head: 'தலைவர்',
+    hh_remove: 'நீக்கு', hh_leave: 'குடும்பத்தை விட்டு வெளியேறு',
+    hh_leave_q: 'இந்த குடும்பத்தை விட்டு வெளியேறவா?', hh_leave_msg: 'மீண்டும் சேர அழைப்பு குறியீடு தேவைப்படும்.',
+    hh_remove_q: (n) => `${n}-ஐ குடும்பத்திலிருந்து நீக்கவா?`,
+    hh_left: 'நீங்கள் குடும்பத்தை விட்டு வெளியேறினீர்கள்', hh_member_removed: (n) => `${n} நீக்கப்பட்டார்`,
+    hh_head_leave_blocked: 'முதலில் மற்ற உறுப்பினர்களை நீக்கவும், அல்லது அவர்களை வெளியேறச் சொல்லுங்கள்',
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
       'black drool': 'கருப்பு உமிழ்நீர்', 'excessive drooling': 'அதிக உமிழ்நீர் வடிதல்',
@@ -197,6 +245,8 @@ const state = {
   date: todayStr(),
   feedings: [],
   symptoms: [],
+  household: null, // { id, name, invite_code, is_head, role }
+  userId: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -279,6 +329,11 @@ async function call(path, opts = {}) {
       throw new Error(t('auth_signin'));
     }
     const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.error === 'no_household') {
+      state.household = null;
+      showHouseholdGate();
+      throw new Error(data.message || 'no_household');
+    }
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
   } finally {
@@ -681,6 +736,58 @@ function sheetLogSymptom() {
   };
 }
 
+// Plain-text version of the same analysis, for handing to a vet — WhatsApp,
+// SMS, email, or just read off the screen. Kept in the app's current
+// language so it matches what the family already sees on screen.
+function buildVetSummary(symptom, analysis) {
+  const suspects = analysis.suspects || [];
+  const label = symLabel(symptom.Symptom);
+  const puppy = selectedPuppy()?.Name || t('your_puppy');
+  const lines = [
+    `🐾 Bonzaa — ${t('vet_share_title')}`,
+    t('vet_share_for', puppy),
+    '',
+    `${label[0].toUpperCase() + label.slice(1)} (${t(symptom.Severity || 'mild')}) · ${t('onset_at')} ${(symptom.OnsetAt || '').slice(0, 16)}`,
+    '',
+  ];
+  if (suspects.length) {
+    lines.push(`${t('suspects_title')}:`);
+    suspects.forEach((s, i) => {
+      const bits = [
+        s.brand || null,
+        t('in_window', s.feedings_in_window.length),
+        s.preceded_prior_incidents ? t('before_incidents', s.preceded_prior_incidents) : null,
+        t('last14', s.fed_times_in_last_14_days),
+      ].filter(Boolean).join(' · ');
+      lines.push(`${i + 1}. ${s.name}${s.was_new_food ? ` [${t('new_food_badge')}]` : ''} — ${Number(s.score).toFixed(1)}`);
+      lines.push(`   ${bits}`);
+    });
+  } else {
+    lines.push(t('no_window_meals'));
+  }
+  lines.push('', `⚕️ ${t('vet_note')}`);
+  return lines.join('\n');
+}
+
+async function shareWithVet(symptom, analysis) {
+  const text = buildVetSummary(symptom, analysis);
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // user cancelled the share sheet
+      // fall through to clipboard
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t('share_vet_copied'));
+  } catch (e) {
+    toast(t('share_vet_copied'));
+  }
+}
+
 function showAnalysis(symptom, analysis) {
   const suspects = analysis.suspects || [];
   const max = Math.max(0.01, ...suspects.map((s) => s.score));
@@ -704,7 +811,9 @@ function showAnalysis(symptom, analysis) {
         ].filter(Boolean).join(' · ')}</div>
       </div>`).join('')
     : `<p class="s-sub">${t('no_window_meals')}</p>`}
-    <div class="vet-note">⚕️ ${t('vet_note')}</div>`);
+    <div class="vet-note">⚕️ ${t('vet_note')}</div>
+    <button type="button" class="cta" id="shareVetBtn" style="margin-top:14px">${t('share_vet')}</button>`);
+  $('#shareVetBtn').onclick = () => shareWithVet(symptom, analysis);
 }
 
 function confirmDeletePuppy(id) {
@@ -908,8 +1017,21 @@ function showAuthGate() {
   renderAuthWidget();
 }
 
-function showApp() {
+async function showApp() {
   $('#authScreen').hidden = true;
+  try {
+    const r = await call('/household');
+    state.household = r.household;
+    state.userId = r.your_user_id;
+  } catch (e) {
+    return; // call() already routed to the auth or household gate
+  }
+  if (!state.household) return showHouseholdGate();
+  enterApp();
+}
+
+function enterApp() {
+  $('#householdScreen').hidden = true;
   $('#appShell').hidden = false;
   loadCore();
 }
@@ -932,6 +1054,175 @@ $('#signOutBtn').addEventListener('click', () => {
     toast(e.message || 'Sign out failed');
   }
 });
+
+/* ---------- household gate ---------- */
+// Shown once a visitor is signed in but belongs to no family yet — every
+// data route 409s with no_household until they create or join one, so this
+// screen is the only way into the app past that point.
+
+let hhMode = 'create'; // 'create' | 'join'
+
+function paintHouseholdLabels() {
+  $('#hhTagline').textContent = t('hh_tagline');
+  $('#hhLangBtn').textContent = lang === 'en' ? 'தமிழ்' : 'English';
+  $('#hhStatus').textContent = hhMode === 'create' ? t('hh_create_title') : t('hh_join_title');
+  $('#hhSwitch').textContent = hhMode === 'create' ? t('hh_to_join') : t('hh_to_create');
+  $('#hh-name-l').textContent = t('hh_name');
+  $('#hh-name').placeholder = t('hh_name_ph');
+  $('#hh-create-submit').textContent = t('hh_create_btn');
+  $('#hh-code-l').textContent = t('hh_code');
+  $('#hh-code').placeholder = t('hh_code_ph');
+  $('#hh-join-submit').textContent = t('hh_join_btn');
+}
+
+function renderHouseholdGate() {
+  $('#hh-create-form').hidden = hhMode !== 'create';
+  $('#hh-join-form').hidden = hhMode !== 'join';
+  $('#hh-msg').className = 'auth-msg';
+  $('#hh-msg').textContent = '';
+  paintHouseholdLabels();
+}
+
+function showHouseholdGate() {
+  $('#authScreen').hidden = true;
+  $('#appShell').hidden = true;
+  $('#householdScreen').hidden = false;
+  renderHouseholdGate();
+}
+
+$('#hhSwitch').addEventListener('click', () => {
+  hhMode = hhMode === 'create' ? 'join' : 'create';
+  renderHouseholdGate();
+});
+
+$('#hhLangBtn').addEventListener('click', () => {
+  lang = lang === 'en' ? 'ta' : 'en';
+  try { localStorage.setItem('bonzaa_lang', lang); } catch (e) { /* private mode */ }
+  paintHouseholdLabels();
+});
+
+$('#hh-create-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('#hh-name').value.trim();
+  const msg = $('#hh-msg');
+  if (!name) { msg.className = 'auth-msg err'; msg.textContent = t('hh_need_name'); return; }
+  msg.className = 'auth-msg';
+  msg.textContent = t('hh_creating');
+  try {
+    const r = await call('/household', { method: 'POST', body: JSON.stringify({ name }) });
+    state.household = r.household;
+    toast(t('hh_created', name));
+    enterApp();
+  } catch (err) {
+    msg.className = 'auth-msg err';
+    msg.textContent = err.message;
+  }
+});
+
+$('#hh-join-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = $('#hh-code').value.trim().toUpperCase();
+  const msg = $('#hh-msg');
+  if (!code) { msg.className = 'auth-msg err'; msg.textContent = t('hh_need_code'); return; }
+  msg.className = 'auth-msg';
+  msg.textContent = t('hh_joining');
+  try {
+    const r = await call('/household/join', { method: 'POST', body: JSON.stringify({ invite_code: code }) });
+    state.household = r.household;
+    toast(t('hh_joined', r.household.name));
+    enterApp();
+  } catch (err) {
+    msg.className = 'auth-msg err';
+    msg.textContent = err.message;
+  }
+});
+
+/* ---------- family panel ---------- */
+// Reached from the topbar once inside the app — shows the invite code and
+// members, and lets the head remove members or anyone leave.
+
+async function openFamilySheet() {
+  try {
+    const r = await call('/household');
+    state.household = r.household;
+    state.userId = r.your_user_id;
+    if (!state.household) return showHouseholdGate();
+    renderFamilySheet(r.members);
+  } catch (e) { toast(e.message); }
+}
+
+function renderFamilySheet(members) {
+  const hh = state.household;
+  openSheet(`
+    <h3>${t('hh_panel_title')}</h3>
+    <p class="s-sub">${esc(hh.name)}</p>
+    <div class="lbl">${t('hh_invite_label')}</div>
+    <div class="invite-row">
+      <code id="inviteCodeText">${esc(hh.invite_code)}</code>
+      <button type="button" class="chip" id="copyInviteBtn">${t('hh_copy')}</button>
+    </div>
+    <div class="lbl">${t('hh_members')}</div>
+    <div class="member-list">
+      ${members.map((m) => `
+        <div class="member-row">
+          <div>
+            <div class="member-name">${esc(m.display_name || m.email || m.user_id)}${m.user_id === String(state.userId) ? ` · ${t('hh_you')}` : ''}</div>
+            ${m.role === 'head' ? `<div class="member-role">${t('hh_head')}</div>` : ''}
+          </div>
+          ${hh.is_head && m.role !== 'head' ? `<button type="button" class="chip" data-remove-member="${esc(m.user_id)}" data-remove-name="${esc(m.display_name || m.email || m.user_id)}">${t('hh_remove')}</button>` : ''}
+        </div>`).join('')}
+    </div>
+    <button type="button" class="btn-ghost" id="leaveFamilyBtn" style="width:100%;padding:12px;border-radius:99px;font-weight:700;margin-top:16px;">${t('hh_leave')}</button>`);
+
+  $('#copyInviteBtn').onclick = () => {
+    (navigator.clipboard?.writeText(hh.invite_code) || Promise.reject()).catch(() => {});
+    $('#copyInviteBtn').textContent = t('hh_copied');
+    setTimeout(() => { const b = document.getElementById('copyInviteBtn'); if (b) b.textContent = t('hh_copy'); }, 1500);
+  };
+  $('#sheet').querySelectorAll('[data-remove-member]').forEach((btn) => {
+    btn.onclick = () => confirmRemoveMember(btn.dataset.removeMember, btn.dataset.removeName);
+  });
+  $('#leaveFamilyBtn').onclick = confirmLeaveFamily;
+}
+
+function confirmRemoveMember(userId, name) {
+  openSheet(`
+    <h3>${t('hh_remove_q', esc(name))}</h3>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="cancel-remove-member">${t('cancel')}</button>
+      <button class="btn-danger" id="confirm-remove-member">${t('hh_remove')}</button>
+    </div>`);
+  $('#cancel-remove-member').onclick = () => openFamilySheet();
+  $('#confirm-remove-member').onclick = async () => {
+    try {
+      await call(`/household/members?user_id=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+      toast(t('hh_member_removed', name));
+      openFamilySheet();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+function confirmLeaveFamily() {
+  openSheet(`
+    <h3>${t('hh_leave_q')}</h3>
+    <p class="s-sub">${t('hh_leave_msg')}</p>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="cancel-leave">${t('cancel')}</button>
+      <button class="btn-danger" id="confirm-leave">${t('hh_leave')}</button>
+    </div>`);
+  $('#cancel-leave').onclick = () => openFamilySheet();
+  $('#confirm-leave').onclick = async () => {
+    try {
+      await call('/household/leave', { method: 'POST' });
+      state.household = null;
+      closeSheet();
+      toast(t('hh_left'));
+      showHouseholdGate();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+$('#familyBtn').addEventListener('click', openFamilySheet);
 
 async function boot() {
   $('#authStatus').textContent = t('auth_checking');

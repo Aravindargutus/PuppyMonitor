@@ -31,7 +31,29 @@
   </div>
 </div>
 
-<!-- App shell: revealed once authenticated -->
+<!-- Household gate: shown when signed in but not in a family yet -->
+<div class="auth-screen" id="householdScreen" hidden>
+  <div class="auth-card">
+    <div class="auth-brand">👨‍👩‍👧 Bonzaa</div>
+    <div class="auth-tagline" id="hhTagline">One family, one shared list of puppies</div>
+    <div class="auth-status" id="hhStatus"></div>
+
+    <form id="hh-create-form" class="auth-form" autocomplete="off">
+      <div class="field"><label for="hh-name" id="hh-name-l">Family name</label><input id="hh-name" required placeholder="e.g. Durgaraj Family"></div>
+      <button class="cta" id="hh-create-submit" type="submit">Create family</button>
+    </form>
+    <form id="hh-join-form" class="auth-form" hidden autocomplete="off">
+      <div class="field"><label for="hh-code" id="hh-code-l">Invite code</label><input id="hh-code" required placeholder="e.g. PUP7X2QK" maxlength="8" style="text-transform:uppercase"></div>
+      <button class="cta" id="hh-join-submit" type="submit">Join family</button>
+    </form>
+    <div class="auth-msg" id="hh-msg"></div>
+
+    <button class="auth-switch" id="hhSwitch"></button>
+    <button class="lang-btn auth-lang" id="hhLangBtn">தமிழ்</button>
+  </div>
+</div>
+
+<!-- App shell: revealed once authenticated and in a family -->
 <div id="appShell" hidden>
   <header class="topbar">
     <div>
@@ -39,6 +61,7 @@
       <div class="brand-sub" id="topbarSub">Daily meals</div>
     </div>
     <div class="topbar-actions">
+      <button class="icon-btn" id="familyBtn" aria-label="Family">👨‍👩‍👧</button>
       <button class="lang-btn" id="langBtn" aria-label="Switch language">தமிழ்</button>
       <button class="icon-btn" id="signOutBtn" aria-label="Sign out">⏻</button>
     </div>

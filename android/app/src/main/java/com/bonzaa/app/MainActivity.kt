@@ -113,9 +113,10 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
     }
 
     var signedIn by remember { mutableStateOf(com.bonzaa.app.data.CatalystAuth.isSignedIn()) }
+    var showFamilySheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(signedIn) {
-        if (signedIn) vm.refreshAll()
+        if (signedIn) vm.checkHousehold()
     }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalLang provides lang) {
@@ -128,6 +129,23 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
             },
             onSignedIn = { signedIn = true },
         )
+        return@CompositionLocalProvider
+    }
+    if (state.needsHousehold != false) {
+        // null = still checking (brief — just wait), true = show the gate.
+        if (state.needsHousehold == true) {
+            com.bonzaa.app.ui.screens.HouseholdGateScreen(
+                langCode = langCode,
+                onToggleLang = {
+                    langCode = if (langCode == "en") "ta" else "en"
+                    context.getSharedPreferences("bonzaa", 0).edit().putString("lang", langCode).apply()
+                },
+                onCreate = vm::createHousehold,
+                onJoin = vm::joinHousehold,
+                busy = state.loading,
+                error = state.error,
+            )
+        }
         return@CompositionLocalProvider
     }
     Scaffold(
@@ -151,6 +169,9 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     }
                 },
                 actions = {
+                    androidx.compose.material3.IconButton(
+                        onClick = { vm.loadFamily(); showFamilySheet = true },
+                    ) { Text("👨‍👩‍👧") }
                     androidx.compose.material3.OutlinedButton(
                         onClick = {
                             langCode = if (langCode == "en") "ta" else "en"
@@ -305,6 +326,21 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                 showLogSymptom = false
             },
         )
+    }
+    if (showFamilySheet) {
+        state.household?.let { hh ->
+            com.bonzaa.app.ui.screens.FamilySheet(
+                household = hh,
+                members = state.householdMembers,
+                yourUserId = state.yourUserId,
+                onDismiss = { showFamilySheet = false },
+                onRemoveMember = vm::removeFamilyMember,
+                onLeave = {
+                    showFamilySheet = false
+                    vm.leaveFamily()
+                },
+            )
+        }
     }
     } // CompositionLocalProvider
 }

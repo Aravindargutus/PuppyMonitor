@@ -16,6 +16,21 @@ import java.util.concurrent.TimeUnit
 
 interface BonzaaApi {
 
+    @GET("household")
+    suspend fun getHousehold(): HouseholdResponse
+
+    @POST("household")
+    suspend fun createHousehold(@Body body: NewHousehold): HouseholdCreateResponse
+
+    @POST("household/join")
+    suspend fun joinHousehold(@Body body: JoinHousehold): HouseholdCreateResponse
+
+    @POST("household/leave")
+    suspend fun leaveHousehold(): LeftResponse
+
+    @DELETE("household/members")
+    suspend fun removeMember(@Query("user_id") userId: String): RemovedResponse
+
     @GET("puppies")
     suspend fun getPuppies(): PuppiesResponse
 
