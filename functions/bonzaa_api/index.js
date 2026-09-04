@@ -18,6 +18,8 @@ const crypto = require('crypto');
  *                     MealSlot, FedAt(datetime 'YYYY-MM-DD HH:mm:ss'), FedBy,
  *                     IsNewFood(boolean), Notes(text)
  *   SymptomLogs     : PuppyId(bigint), Symptom, Severity, OnsetAt(datetime), Notes(text)
+ *   RateLimits      : RLKey(varchar, unique), Count(bigint) — see checkRateLimit()
+ *   RecentRemovals  : RRKey(varchar, unique), RemovedAtMs(bigint) — see markRecentlyRemoved()
  *
  * A puppy, and everything under it, belongs to exactly one household. Every
  * data route is scoped to the caller's household — resolved once per request
@@ -191,20 +193,65 @@ async function checkRateLimit(app, bucket, userId, maxPerHour) {
 		if (existing) {
 			throw new ApiError(429, { error: 'Too many requests — please wait a bit before trying again' });
 		}
-		// First request in this hour for this key. RLKey is unique, so a concurrent
-		// first request racing us here just fails its own insert — whichever of us
-		// wins still correctly counts as this hour's 1st, and the loser's request
-		// still went through (it just doesn't get to also claim the row).
+		// No row yet — this looks like the first request of a fresh hour. RLKey
+		// is unique, so if we win the insert we ARE that first request (Count=1,
+		// allowed). But a burst of concurrent "first" requests all land here
+		// simultaneously, and only one of them can win — the naive version of
+		// this treated every LOSER as free too (confirmed live: 30 concurrent
+		// first-of-the-hour requests, all accepted, final stored count "1").
+		// A loser isn't free: it has to go back and take the atomic increment
+		// path against the row the winner just created, same as any other
+		// request arriving after the first — that's what actually enforces the
+		// cap across the burst instead of only after it.
 		try {
 			await app.datastore().table('RateLimits').insertRow({ RLKey: key, Count: 1 });
+			return; // we won — we're this hour's 1st, allowed
 		} catch (e) {
-			// Someone else created it in the same instant — fine, this request still happened.
+			const retryIncremented = await zcqlOne(
+				zcql,
+				`UPDATE RateLimits SET Count = Count + 1 WHERE RLKey = '${esc(key)}' AND Count < ${Number(maxPerHour)}`,
+				'RateLimits'
+			);
+			if (retryIncremented) return;
+			throw new ApiError(429, { error: 'Too many requests — please wait a bit before trying again' });
 		}
 	} catch (e) {
 		if (e instanceof ApiError) throw e;
 		// Data Store hiccup: fail open rather than lock a family out of the app over it.
 		console.error('rate limit check failed, allowing request:', e.message || e);
 	}
+}
+
+/* ---------- recent-removal denylist ---------- */
+// DELETE /household/members rotates the invite code before deleting the
+// membership specifically so the OLD code dies before removal takes effect —
+// but the removed member is still, technically, a member for the instant
+// between those two writes, and a GET /household in that instant would hand
+// them the brand-new code. There's no cross-table transaction available to
+// make "rotate + delete" a single atomic step, so this closes the gap from
+// the other side instead: record that this (household, user) pair was just
+// removed, and refuse a join on this household from that exact user for a
+// short window afterward — regardless of which code, old or new, they
+// present. RRKey is unique, so a concurrent removal+immediate-rejoin can't
+// race past this the way the invite code itself could.
+const RECENT_REMOVAL_WINDOW_MS = 60 * 1000;
+
+async function markRecentlyRemoved(app, householdId, userId) {
+	const key = `${householdId}:${userId}`;
+	const zcql = app.zcql();
+	const existing = await zcqlOne(zcql, `SELECT ROWID FROM RecentRemovals WHERE RRKey = '${esc(key)}'`, 'RecentRemovals');
+	if (existing) {
+		await app.datastore().table('RecentRemovals').updateRow({ ROWID: Number(existing.ROWID), RemovedAtMs: Date.now() });
+	} else {
+		await app.datastore().table('RecentRemovals').insertRow({ RRKey: key, RemovedAtMs: Date.now() });
+	}
+}
+
+async function wasRecentlyRemoved(app, householdId, userId) {
+	const key = `${householdId}:${userId}`;
+	const row = await zcqlOne(app.zcql(), `SELECT RemovedAtMs FROM RecentRemovals WHERE RRKey = '${esc(key)}'`, 'RecentRemovals');
+	if (!row) return false;
+	return Date.now() - Number(row.RemovedAtMs) < RECENT_REMOVAL_WINDOW_MS;
 }
 
 /* ---------- household membership ---------- */
@@ -488,6 +535,11 @@ const routes = {
 		const zcql = app.zcql();
 		const household = await zcqlOne(zcql, `SELECT ROWID, Name, InviteCode FROM Households WHERE InviteCode = '${esc(code)}'`, 'Households');
 		if (!household) return sendJson(res, 404, { error: 'No family found with that invite code' });
+		// Same response as an unknown code — no reason to tell a just-removed
+		// user WHY it didn't work, only that it didn't.
+		if (await wasRecentlyRemoved(app, Number(household.ROWID), ctx.user.user_id)) {
+			return sendJson(res, 404, { error: 'No family found with that invite code' });
+		}
 
 		await app.datastore().table('HouseholdMembers').insertRow({
 			HouseholdId: Number(household.ROWID),
@@ -585,6 +637,11 @@ const routes = {
 		if (!member || Number(member.HouseholdId) !== ctx.household.id) {
 			return sendJson(res, 404, { error: 'Not a member of your family' });
 		}
+		// Denylist the removed user for this household BEFORE anything else —
+		// so it's already in place before the rotate/delete sequence below even
+		// starts, closing POST /household/join to them regardless of which
+		// invite code (old or new) they present during that window.
+		await markRecentlyRemoved(app, ctx.household.id, targetUserId);
 		// Rotate the invite code BEFORE deleting the membership, not after: the
 		// removed member saw this code while they were in the household (every
 		// member can see it, to help grow the family), so if the delete lands

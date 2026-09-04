@@ -33,6 +33,8 @@ object PushNotifications {
     // both key off, not a Firebase project ID.
     private const val CATALYST_APP_ID = "5433000043323270"
     private const val BUNDLE_ID = "com.bonzaa.app"
+    private const val DEREGISTER_MAX_ATTEMPTS = 3
+    private const val DEREGISTER_RETRY_DELAY_MS = 800L
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -62,17 +64,44 @@ object PushNotifications {
      * the account that's leaving — on a shared or handed-down phone the next
      * person to sign in could otherwise still receive the previous account's
      * family notifications until the token happens to rotate on its own.
+     *
+     * This is the ONLY place this can ever be attempted: deregisterNotification()
+     * reaches into the currently signed-in user internally to fetch an access
+     * token (confirmed in the SDK's own bytecode — the exact same call path that
+     * NPEs in registerNotification() when nobody's signed in), so once
+     * CatalystAuth.logout() actually completes there is no session left to
+     * authenticate a retry with. There's no "try again later while signed out" —
+     * retrying can only mean retrying now, before logout, which is what the
+     * bounded retries below are for. Sign-out still doesn't block indefinitely
+     * on this: after a few quick attempts it gives up and lets logout proceed,
+     * relying on registerToken()'s "already registered" self-heal to force the
+     * correct association at whoever's next sign-in.
      */
     fun deregisterDevice(onDone: () -> Unit) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             val token = task.result
             if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onDone()
-            ZCatalystApp.getInstance().deregisterNotification(
-                token, BUNDLE_ID, CATALYST_APP_ID, true,
-                { Log.i(TAG, "Device deregistered from push"); onDone() },
-                { e -> Log.w(TAG, "deregisterNotification failed: ${e.message}"); onDone() },
-            )
+            attemptDeregister(token, attempt = 1, onDone)
         }
+    }
+
+    private fun attemptDeregister(token: String, attempt: Int, onDone: () -> Unit) {
+        ZCatalystApp.getInstance().deregisterNotification(
+            token, BUNDLE_ID, CATALYST_APP_ID, true,
+            { Log.i(TAG, "Device deregistered from push (attempt $attempt)"); onDone() },
+            { e ->
+                Log.w(TAG, "deregisterNotification failed (attempt $attempt): ${e.message}")
+                if (attempt < DEREGISTER_MAX_ATTEMPTS) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        { attemptDeregister(token, attempt + 1, onDone) },
+                        DEREGISTER_RETRY_DELAY_MS,
+                    )
+                } else {
+                    Log.w(TAG, "Giving up on deregister after $attempt attempts — proceeding with sign-out anyway")
+                    onDone()
+                }
+            },
+        )
     }
 
     private fun registerToken(token: String?, isRetry: Boolean = false) {

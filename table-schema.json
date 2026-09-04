@@ -64,6 +64,22 @@
         { "column_name": "OnsetAt", "data_type": "datetime", "is_mandatory": true },
         { "column_name": "Notes", "data_type": "text" }
       ]
+    },
+    {
+      "table_name": "RateLimits",
+      "_comment": "Backs checkRateLimit() in functions/bonzaa_api/index.js. No RateLimits table means every rate-limit check's Data Store call throws, which checkRateLimit() deliberately treats as a fail-open cache hiccup — so a fresh environment missing this table has NO rate limiting at all, silently, with no error surfaced anywhere. Create it before relying on the rate limits being real.",
+      "columns": [
+        { "column_name": "RLKey", "data_type": "varchar", "max_length": 150, "is_mandatory": true, "is_unique": true, "_comment": "'<bucket>:<userId>:<ISO hour>', e.g. 'symptom:5433.../2026-09-05T00'" },
+        { "column_name": "Count", "data_type": "bigint", "is_mandatory": true }
+      ]
+    },
+    {
+      "table_name": "RecentRemovals",
+      "_comment": "Backs markRecentlyRemoved()/wasRecentlyRemoved() in functions/bonzaa_api/index.js — blocks a just-removed member from rejoining via a leaked invite code for RECENT_REMOVAL_WINDOW_MS after removal, regardless of which code (old or new) they present.",
+      "columns": [
+        { "column_name": "RRKey", "data_type": "varchar", "max_length": 150, "is_mandatory": true, "is_unique": true, "_comment": "'<householdId>:<userId>'" },
+        { "column_name": "RemovedAtMs", "data_type": "bigint", "is_mandatory": true }
+      ]
     }
   ]
 }
