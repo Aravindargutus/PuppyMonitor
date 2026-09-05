@@ -81,11 +81,19 @@ object PushNotifications {
      * silent, unbounded window. The caller decides what to do with that
      * (typically: ask the person whether to sign out anyway), rather than the
      * SDK deciding it on their behalf.
+     *
+     * The same reasoning applies if the FCM token fetch itself fails (no
+     * network, Play Services hiccup): that says nothing about whether an
+     * EARLIER token is still registered against this account from whenever
+     * registerDevice() last succeeded — almost certainly one is. Not being
+     * able to identify which token to deregister is exactly as uncertain as
+     * a deregister call failing outright, so this also calls onFailure, not
+     * onSuccess.
      */
     fun deregisterDevice(onSuccess: () -> Unit, onFailure: () -> Unit) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             val token = task.result
-            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onSuccess()
+            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onFailure()
             attemptDeregister(token, attempt = 1, onSuccess, onFailure)
         }
     }

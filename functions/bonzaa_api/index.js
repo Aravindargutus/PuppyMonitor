@@ -767,6 +767,31 @@ const routes = {
 			return sendJson(res, 409, { error: 'Headship already changed by someone else — refresh and try again' });
 		}
 
+		// The CAS above only guards against a concurrent transfer-head — it
+		// says nothing about a concurrent DELETE /household/members removing
+		// the very person we just made head. `target` was read before the CAS,
+		// so a removal landing in between leaves Households.HeadUserId pointing
+		// at someone with no HouseholdMembers row at all: nobody can act as
+		// head (the new "head" has no membership to be recognized by), and
+		// nobody can fix it (the old head just gave that up) — confirmed as a
+		// real, reproducible bug. Re-check the target still exists right after
+		// winning the CAS, and if not, compensate by reverting HeadUserId back
+		// to the caller rather than leaving a dangling reference. This can't be
+		// made airtight without cross-table transactions, but it turns a
+		// permanently-stuck household into, at worst, a "try again" for the
+		// caller — DELETE /household/members closes the same gap from its side
+		// by refusing to remove whoever currently holds HeadUserId.
+		const targetStillMember = await zcqlOne(
+			zcql,
+			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}' AND HouseholdId = ${ctx.household.id}`,
+			'HouseholdMembers'
+		);
+		if (!targetStillMember) {
+			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, HeadUserId: String(ctx.user.user_id) })
+				.catch((e) => console.error('failed to revert HeadUserId after target vanished:', e));
+			return sendJson(res, 409, { error: 'That member was removed during the transfer — try again' });
+		}
+
 		// Households.HeadUserId (just updated atomically above) is what every
 		// is_head check actually reads — these two Role updates are display-only
 		// from here on. Promote-before-demote no longer matters for correctness,
@@ -797,6 +822,22 @@ const routes = {
 		);
 		if (!member || Number(member.HouseholdId) !== ctx.household.id) {
 			return sendJson(res, 404, { error: 'Not a member of your family' });
+		}
+		// A fresh read, not ctx.household.head_user_id (a stale snapshot from
+		// request start) — this is the other half of the fix in
+		// 'POST /household/transfer-head': if a transfer just landed and made
+		// this exact target the head, removing them now would leave
+		// Households.HeadUserId pointing at someone we're about to delete from
+		// HouseholdMembers, the same dangling-head state from the opposite
+		// direction. Refusing here doesn't need a compensating step, unlike the
+		// transfer side — nothing has been written yet.
+		const currentHousehold = await zcqlOne(
+			zcql,
+			`SELECT HeadUserId FROM Households WHERE ROWID = ${ctx.household.id}`,
+			'Households'
+		);
+		if (currentHousehold && String(currentHousehold.HeadUserId) === targetUserId) {
+			return sendJson(res, 409, { error: 'This member just became the head — transfer headship away from them first' });
 		}
 		// Denylist the removed user for this household BEFORE anything else —
 		// so it's already in place before the rotate/delete sequence below even
