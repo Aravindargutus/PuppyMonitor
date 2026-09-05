@@ -20,6 +20,9 @@ const crypto = require('crypto');
  *   SymptomLogs     : PuppyId(bigint), Symptom, Severity, OnsetAt(datetime), Notes(text)
  *   RateLimits      : RLKey(varchar, unique), Count(bigint) — see checkRateLimit()
  *   RecentRemovals  : RRKey(varchar, unique), RemovedAtMs(bigint) — see markRecentlyRemoved()
+ *   JoinRequests    : HouseholdId(bigint), CatalystUserId(varchar, unique), Email,
+ *                     DisplayName — a join is a request, not a membership, until
+ *                     the head approves it (see POST /household/join-requests/approve)
  *
  * A puppy, and everything under it, belongs to exactly one household. Every
  * data route is scoped to the caller's household — resolved once per request
@@ -270,13 +273,42 @@ async function getMembership(app, catalystUserId) {
 		'Households'
 	);
 	if (!household) return null;
+	// is_head is derived from Households.HeadUserId, NOT HouseholdMembers.Role —
+	// Role is a denormalized display copy, kept in sync on transfer, but
+	// HeadUserId is the single authoritative value every permission check
+	// gates on. This matters: a concurrency bug in transfer-head could earlier
+	// leave two HouseholdMembers rows both marked Role='head' after a race
+	// (confirmed live) — trusting Role directly meant BOTH of those users
+	// would pass is_head checks. HeadUserId is written by exactly one atomic
+	// conditional UPDATE per transfer (see 'POST /household/transfer-head'),
+	// so it can never itself end up pointing at two people.
+	const isHead = String(household.HeadUserId) === String(catalystUserId);
 	return {
 		id: Number(household.ROWID),
 		name: household.Name,
 		invite_code: household.InviteCode,
-		is_head: membership.Role === 'head',
-		role: membership.Role
+		head_user_id: String(household.HeadUserId),
+		is_head: isHead,
+		role: isHead ? 'head' : 'member'
 	};
+}
+
+// A user can have at most one outstanding join request at a time — same
+// invariant as membership itself, and enforced the same way (CatalystUserId
+// unique on JoinRequests, same as on HouseholdMembers).
+async function getPendingJoinRequest(app, catalystUserId) {
+	const row = await zcqlOne(
+		app.zcql(),
+		`SELECT HouseholdId, CREATEDTIME FROM JoinRequests WHERE CatalystUserId = '${esc(catalystUserId)}'`,
+		'JoinRequests'
+	);
+	if (!row) return null;
+	const household = await zcqlOne(
+		app.zcql(),
+		`SELECT Name FROM Households WHERE ROWID = ${Number(row.HouseholdId)}`,
+		'Households'
+	);
+	return { household_name: household ? household.Name : null, requested_at: row.CREATEDTIME };
 }
 
 // Every data route (everything but /health and /household*) needs a household.
@@ -359,6 +391,26 @@ async function notifyHouseholdOfNewMember(app, householdId, newUser) {
 	await pushToHouseholdMembers(app, householdId, newUser.user_id, '👨‍👩‍👧 Someone joined your family on Bonzaa', {
 		type: 'member_joined'
 	});
+}
+
+// The requester isn't a HouseholdMembers row yet, so pushToHouseholdMembers
+// (which only targets existing members) can't reach them — send straight to
+// the head's own user id instead.
+async function notifyHeadOfJoinRequest(app, headUserId) {
+	await app.pushNotification().mobile(PUSH_APP_ID).sendAndroidNotification(
+		{ message: '🔔 Someone wants to join your family — open Bonzaa to review', additional_info: { type: 'join_requested' } },
+		headUserId
+	).catch((e) => console.error('push failed for head', headUserId, e.message || e));
+}
+
+async function notifyRequesterOfDecision(app, catalystUserId, approved) {
+	const message = approved
+		? '🎉 You were approved to join your family — open Bonzaa to get started'
+		: '🚫 Your request to join a family on Bonzaa was declined';
+	await app.pushNotification().mobile(PUSH_APP_ID).sendAndroidNotification(
+		{ message, additional_info: { type: approved ? 'join_approved' : 'join_declined' } },
+		catalystUserId
+	).catch((e) => console.error('push failed for requester', catalystUserId, e.message || e));
 }
 
 /* ---------- suspect scoring ---------- */
@@ -481,14 +533,25 @@ const routes = {
 	/* ---- household ---- */
 
 	'GET /household': async (app, req, res, query, ctx) => {
-		if (!ctx.household) return sendJson(res, 200, { household: null, members: [], your_user_id: String(ctx.user.user_id) });
+		if (!ctx.household) {
+			const pending = await getPendingJoinRequest(app, String(ctx.user.user_id));
+			return sendJson(res, 200, { household: null, members: [], your_user_id: String(ctx.user.user_id), pending_request: pending });
+		}
 		const zcql = app.zcql();
 		const memberRows = await zcqlAll(
 			zcql,
-			`SELECT CatalystUserId, Email, DisplayName, Role, CREATEDTIME FROM HouseholdMembers ` +
+			`SELECT CatalystUserId, Email, DisplayName, CREATEDTIME FROM HouseholdMembers ` +
 			`WHERE HouseholdId = ${ctx.household.id} ORDER BY CREATEDTIME`,
 			'HouseholdMembers'
 		);
+		// Only the head sees who's asking to join — nobody else needs to.
+		const joinRequests = ctx.household.is_head
+			? await zcqlAll(
+					zcql,
+					`SELECT CatalystUserId, Email, DisplayName, CREATEDTIME FROM JoinRequests WHERE HouseholdId = ${ctx.household.id} ORDER BY CREATEDTIME`,
+					'JoinRequests'
+				)
+			: [];
 		sendJson(res, 200, {
 			household: ctx.household,
 			your_user_id: String(ctx.user.user_id),
@@ -496,8 +559,16 @@ const routes = {
 				user_id: m.CatalystUserId,
 				email: m.Email,
 				display_name: m.DisplayName,
-				role: m.Role,
+				// Derived from Households.HeadUserId (ctx.household.head_user_id),
+				// the single source of truth — see getMembership().
+				role: m.CatalystUserId === ctx.household.head_user_id ? 'head' : 'member',
 				joined_at: m.CREATEDTIME
+			})),
+			join_requests: joinRequests.map((r) => ({
+				user_id: r.CatalystUserId,
+				email: r.Email,
+				display_name: r.DisplayName,
+				requested_at: r.CREATEDTIME
 			}))
 		});
 	},
@@ -526,6 +597,15 @@ const routes = {
 		});
 	},
 
+	// A code gets someone as far as a REQUEST, never straight to membership —
+	// the head still has to approve it. A rotate-on-removal + short denylist
+	// (see markRecentlyRemoved) can't fully close this on its own: the removed
+	// member typically already knows the CURRENT code (every member can see
+	// it), and no amount of blocking-by-CatalystUserId stops the same person
+	// from signing up under a different Catalyst account and presenting the
+	// same leaked code fresh — a new account is a new identity as far as the
+	// system can tell. Approval is the actual gate: someone who recognizes the
+	// requester (by name/email, shown to the head) decides, not a secret string.
 	'POST /household/join': async (app, req, res, query, ctx) => {
 		if (ctx.household) return sendJson(res, 409, { error: 'You already belong to a family' });
 		await checkRateLimit(app, 'join', ctx.user.user_id, 5);
@@ -533,28 +613,89 @@ const routes = {
 		const code = (body.invite_code || '').trim().toUpperCase();
 		if (!code) return sendJson(res, 400, { error: 'invite_code is required' });
 		const zcql = app.zcql();
-		const household = await zcqlOne(zcql, `SELECT ROWID, Name, InviteCode FROM Households WHERE InviteCode = '${esc(code)}'`, 'Households');
+		const household = await zcqlOne(zcql, `SELECT ROWID, Name, InviteCode, HeadUserId FROM Households WHERE InviteCode = '${esc(code)}'`, 'Households');
 		if (!household) return sendJson(res, 404, { error: 'No family found with that invite code' });
 		// Same response as an unknown code — no reason to tell a just-removed
 		// user WHY it didn't work, only that it didn't.
 		if (await wasRecentlyRemoved(app, Number(household.ROWID), ctx.user.user_id)) {
 			return sendJson(res, 404, { error: 'No family found with that invite code' });
 		}
+		if (await getPendingJoinRequest(app, String(ctx.user.user_id))) {
+			return sendJson(res, 409, { error: 'You already have a pending request to join a family' });
+		}
 
+		try {
+			await app.datastore().table('JoinRequests').insertRow({
+				HouseholdId: Number(household.ROWID),
+				CatalystUserId: String(ctx.user.user_id),
+				Email: ctx.user.email_id || '',
+				DisplayName: [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || ''
+			});
+		} catch (e) {
+			// CatalystUserId is unique — a concurrent duplicate request lands here.
+			return sendJson(res, 409, { error: 'You already have a pending request to join a family' });
+		}
+		sendJson(res, 202, { pending: true, household_name: household.Name });
+		await notifyHeadOfJoinRequest(app, household.HeadUserId)
+			.catch((e) => console.error('notifyHeadOfJoinRequest failed:', e));
+	},
+
+	// Exempt from requireHousehold — for someone who has no household precisely
+	// because they're still waiting on this request to be decided.
+	'POST /household/join-requests/cancel': async (app, req, res, query, ctx) => {
+		const request = await zcqlOne(
+			app.zcql(),
+			`SELECT ROWID FROM JoinRequests WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
+			'JoinRequests'
+		);
+		if (request) await app.datastore().table('JoinRequests').deleteRow(Number(request.ROWID));
+		sendJson(res, 200, { cancelled: true });
+	},
+
+	'POST /household/join-requests/approve': async (app, req, res, query, ctx) => {
+		if (!ctx.household.is_head) return sendJson(res, 403, { error: 'Only the head of the family can approve join requests' });
+		const body = await getBody(req);
+		const targetUserId = (body.user_id || '').toString().trim();
+		if (!targetUserId) return sendJson(res, 400, { error: 'user_id is required' });
+		const zcql = app.zcql();
+		const request = await zcqlOne(
+			zcql,
+			`SELECT ROWID, HouseholdId, Email, DisplayName FROM JoinRequests WHERE CatalystUserId = '${esc(targetUserId)}'`,
+			'JoinRequests'
+		);
+		if (!request || Number(request.HouseholdId) !== ctx.household.id) {
+			return sendJson(res, 404, { error: 'No pending request from that user' });
+		}
 		await app.datastore().table('HouseholdMembers').insertRow({
-			HouseholdId: Number(household.ROWID),
-			CatalystUserId: String(ctx.user.user_id),
-			Email: ctx.user.email_id || '',
-			DisplayName: [ctx.user.first_name, ctx.user.last_name].filter(Boolean).join(' ') || ctx.user.email_id || '',
+			HouseholdId: ctx.household.id,
+			CatalystUserId: targetUserId,
+			Email: request.Email,
+			DisplayName: request.DisplayName,
 			Role: 'member'
 		});
-		sendJson(res, 201, {
-			household: { id: Number(household.ROWID), name: household.Name, invite_code: household.InviteCode, is_head: false, role: 'member' }
-		});
-		// The new member doesn't need to wait on this; the function must stay
-		// alive until it's attempted — await after responding, as with symptoms.
-		await notifyHouseholdOfNewMember(app, Number(household.ROWID), ctx.user)
+		await app.datastore().table('JoinRequests').deleteRow(Number(request.ROWID));
+		sendJson(res, 200, { approved: targetUserId });
+		await notifyRequesterOfDecision(app, targetUserId, true).catch((e) => console.error('notify approve failed:', e));
+		await notifyHouseholdOfNewMember(app, ctx.household.id, { user_id: targetUserId })
 			.catch((e) => console.error('notifyHouseholdOfNewMember failed:', e));
+	},
+
+	'POST /household/join-requests/decline': async (app, req, res, query, ctx) => {
+		if (!ctx.household.is_head) return sendJson(res, 403, { error: 'Only the head of the family can decline join requests' });
+		const body = await getBody(req);
+		const targetUserId = (body.user_id || '').toString().trim();
+		if (!targetUserId) return sendJson(res, 400, { error: 'user_id is required' });
+		const request = await zcqlOne(
+			app.zcql(),
+			`SELECT ROWID, HouseholdId FROM JoinRequests WHERE CatalystUserId = '${esc(targetUserId)}'`,
+			'JoinRequests'
+		);
+		if (!request || Number(request.HouseholdId) !== ctx.household.id) {
+			return sendJson(res, 404, { error: 'No pending request from that user' });
+		}
+		await app.datastore().table('JoinRequests').deleteRow(Number(request.ROWID));
+		sendJson(res, 200, { declined: targetUserId });
+		await notifyRequesterOfDecision(app, targetUserId, false).catch((e) => console.error('notify decline failed:', e));
 	},
 
 	'POST /household/leave': async (app, req, res, query, ctx) => {
@@ -606,13 +747,33 @@ const routes = {
 		);
 		if (!selfMembership) return sendJson(res, 404, { error: 'Membership not found' });
 
-		// Promote the new head before demoting the outgoing one: if this fails
-		// partway through, the failure mode is briefly "two heads", not "no head" —
-		// a household stuck with zero heads can't fix itself (only a head can
-		// remove members or transfer headship again).
+		// The actual authorization gate: only succeeds if THIS caller is still
+		// the head at the instant the database applies it. The is_head check
+		// above reads a snapshot taken at request start, so two concurrent
+		// transfer-head calls (the same head firing twice, or racing another
+		// head-changing action) can both pass it and both believe they're
+		// authorized — confirmed live: HouseholdMembers ended up with two
+		// Role='head' rows after a concurrent-transfer repro. A single
+		// conditional UPDATE is evaluated as one statement by the database,
+		// so of two concurrent attempts sharing WHERE HeadUserId = '<caller>',
+		// only one can still find it true and land; the loser gets zero rows
+		// back and must abort here, before touching HouseholdMembers at all.
+		const won = await zcqlOne(
+			zcql,
+			`UPDATE Households SET HeadUserId = '${esc(targetUserId)}' WHERE ROWID = ${ctx.household.id} AND HeadUserId = '${esc(String(ctx.user.user_id))}'`,
+			'Households'
+		);
+		if (!won) {
+			return sendJson(res, 409, { error: 'Headship already changed by someone else — refresh and try again' });
+		}
+
+		// Households.HeadUserId (just updated atomically above) is what every
+		// is_head check actually reads — these two Role updates are display-only
+		// from here on. Promote-before-demote no longer matters for correctness,
+		// only for what the member list shows if one of these two calls fails
+		// partway through.
 		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(target.ROWID), Role: 'head' });
 		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(selfMembership.ROWID), Role: 'member' });
-		await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, HeadUserId: targetUserId });
 
 		sendJson(res, 200, { transferred: targetUserId });
 		await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, '👑 Family headship changed — open Bonzaa for details', {
@@ -858,7 +1019,10 @@ const routes = {
 };
 
 // Routes that make sense with no household yet (or manage membership itself).
-const HOUSEHOLD_EXEMPT = new Set(['GET /health', 'GET /household', 'POST /household', 'POST /household/join', 'POST /household/leave']);
+const HOUSEHOLD_EXEMPT = new Set([
+	'GET /health', 'GET /household', 'POST /household', 'POST /household/join',
+	'POST /household/leave', 'POST /household/join-requests/cancel'
+]);
 
 /*
  * Application-level auth gate. Catalyst Security Rules are managed server-side

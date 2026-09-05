@@ -115,6 +115,13 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
 
     var signedIn by remember { mutableStateOf(com.bonzaa.app.data.CatalystAuth.isSignedIn()) }
     var showFamilySheet by remember { mutableStateOf(false) }
+    var showSignOutPushFail by remember { mutableStateOf(false) }
+
+    fun doSignOut() {
+        com.bonzaa.app.data.CatalystAuth.logout { ok, _ ->
+            if (ok) signedIn = false
+        }
+    }
 
     LaunchedEffect(signedIn) {
         if (signedIn) {
@@ -146,6 +153,8 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                 },
                 onCreate = vm::createHousehold,
                 onJoin = vm::joinHousehold,
+                pendingRequest = state.pendingRequest,
+                onCancelRequest = vm::cancelJoinRequest,
                 busy = state.loading,
                 error = state.error,
             )
@@ -188,12 +197,14 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
                     androidx.compose.material3.TextButton(
                         onClick = {
                             // Deregister first: otherwise this device stays subscribed to this
-                            // account's family notifications even after signing out of it.
-                            PushNotifications.deregisterDevice {
-                                com.bonzaa.app.data.CatalystAuth.logout { ok, _ ->
-                                    if (ok) signedIn = false
-                                }
-                            }
+                            // account's family notifications even after signing out of it. If
+                            // deregistration can't be confirmed after retrying, ask before
+                            // proceeding rather than silently signing out anyway — see
+                            // PushNotifications.deregisterDevice().
+                            PushNotifications.deregisterDevice(
+                                onSuccess = { doSignOut() },
+                                onFailure = { showSignOutPushFail = true },
+                            )
                         },
                         modifier = Modifier.padding(end = 4.dp),
                     ) { Text(lang["sign_out"]) }
@@ -340,16 +351,34 @@ fun BonzaaApp(vm: AppViewModel = viewModel()) {
             com.bonzaa.app.ui.screens.FamilySheet(
                 household = hh,
                 members = state.householdMembers,
+                joinRequests = state.joinRequests,
                 yourUserId = state.yourUserId,
                 onDismiss = { showFamilySheet = false },
                 onRemoveMember = vm::removeFamilyMember,
                 onMakeHead = vm::transferHeadship,
+                onApproveRequest = vm::approveJoinRequest,
+                onDeclineRequest = vm::declineJoinRequest,
                 onLeave = {
                     showFamilySheet = false
                     vm.leaveFamily()
                 },
             )
         }
+    }
+    if (showSignOutPushFail) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSignOutPushFail = false },
+            title = { Text(lang["sign_out_push_fail_title"]) },
+            text = { Text(lang["sign_out_push_fail_msg"]) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showSignOutPushFail = false; doSignOut() }) {
+                    Text(lang["sign_out_anyway"])
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showSignOutPushFail = false }) { Text(lang["cancel"]) }
+            },
+        )
     }
     } // CompositionLocalProvider
 }

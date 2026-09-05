@@ -80,6 +80,16 @@
         { "column_name": "RRKey", "data_type": "varchar", "max_length": 150, "is_mandatory": true, "is_unique": true, "_comment": "'<householdId>:<userId>'" },
         { "column_name": "RemovedAtMs", "data_type": "bigint", "is_mandatory": true }
       ]
+    },
+    {
+      "table_name": "JoinRequests",
+      "_comment": "A POST /household/join with a valid code creates a row here, not a HouseholdMembers row — the head must approve it (POST /household/join-requests/approve) before the requester is actually a member. Closes a gap identity-based blocking alone can't: a removed member who captured a leaked/rotated code, or who simply signs up under a different Catalyst account, still needs someone who recognizes them to say yes.",
+      "columns": [
+        { "column_name": "HouseholdId", "data_type": "bigint", "is_mandatory": true },
+        { "column_name": "CatalystUserId", "data_type": "varchar", "max_length": 30, "is_mandatory": true, "is_unique": true, "_comment": "unique: a user can have at most one outstanding join request at a time, same invariant as HouseholdMembers" },
+        { "column_name": "Email", "data_type": "varchar", "max_length": 150 },
+        { "column_name": "DisplayName", "data_type": "varchar", "max_length": 150 }
+      ]
     }
   ]
 }

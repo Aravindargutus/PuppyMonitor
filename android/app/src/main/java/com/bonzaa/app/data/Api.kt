@@ -24,7 +24,16 @@ interface BonzaaApi {
     suspend fun createHousehold(@Body body: NewHousehold): HouseholdCreateResponse
 
     @POST("household/join")
-    suspend fun joinHousehold(@Body body: JoinHousehold): HouseholdCreateResponse
+    suspend fun joinHousehold(@Body body: JoinHousehold): JoinPendingResponse
+
+    @POST("household/join-requests/cancel")
+    suspend fun cancelJoinRequest(): CancelledResponse
+
+    @POST("household/join-requests/approve")
+    suspend fun approveJoinRequest(@Body body: JoinRequestDecision): ApprovedResponse
+
+    @POST("household/join-requests/decline")
+    suspend fun declineJoinRequest(@Body body: JoinRequestDecision): DeclinedResponse
 
     @POST("household/leave")
     suspend fun leaveHousehold(): LeftResponse

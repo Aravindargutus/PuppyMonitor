@@ -72,33 +72,38 @@ object PushNotifications {
      * CatalystAuth.logout() actually completes there is no session left to
      * authenticate a retry with. There's no "try again later while signed out" —
      * retrying can only mean retrying now, before logout, which is what the
-     * bounded retries below are for. Sign-out still doesn't block indefinitely
-     * on this: after a few quick attempts it gives up and lets logout proceed,
-     * relying on registerToken()'s "already registered" self-heal to force the
-     * correct association at whoever's next sign-in.
+     * bounded retries below are for.
+     *
+     * If all retries fail, this calls onFailure instead of silently calling
+     * onSuccess: proceeding with sign-out anyway would leave the device
+     * receiving family push for however long it takes registerToken()'s
+     * "already registered" self-heal to notice at some future sign-in — a
+     * silent, unbounded window. The caller decides what to do with that
+     * (typically: ask the person whether to sign out anyway), rather than the
+     * SDK deciding it on their behalf.
      */
-    fun deregisterDevice(onDone: () -> Unit) {
+    fun deregisterDevice(onSuccess: () -> Unit, onFailure: () -> Unit) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             val token = task.result
-            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onDone()
-            attemptDeregister(token, attempt = 1, onDone)
+            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onSuccess()
+            attemptDeregister(token, attempt = 1, onSuccess, onFailure)
         }
     }
 
-    private fun attemptDeregister(token: String, attempt: Int, onDone: () -> Unit) {
+    private fun attemptDeregister(token: String, attempt: Int, onSuccess: () -> Unit, onFailure: () -> Unit) {
         ZCatalystApp.getInstance().deregisterNotification(
             token, BUNDLE_ID, CATALYST_APP_ID, true,
-            { Log.i(TAG, "Device deregistered from push (attempt $attempt)"); onDone() },
+            { Log.i(TAG, "Device deregistered from push (attempt $attempt)"); onSuccess() },
             { e ->
                 Log.w(TAG, "deregisterNotification failed (attempt $attempt): ${e.message}")
                 if (attempt < DEREGISTER_MAX_ATTEMPTS) {
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                        { attemptDeregister(token, attempt + 1, onDone) },
+                        { attemptDeregister(token, attempt + 1, onSuccess, onFailure) },
                         DEREGISTER_RETRY_DELAY_MS,
                     )
                 } else {
-                    Log.w(TAG, "Giving up on deregister after $attempt attempts — proceeding with sign-out anyway")
-                    onDone()
+                    Log.w(TAG, "Giving up on deregister after $attempt attempts")
+                    onFailure()
                 }
             },
         )

@@ -8,11 +8,14 @@ import com.bonzaa.app.data.FoodItem
 import com.bonzaa.app.data.Household
 import com.bonzaa.app.data.HouseholdMember
 import com.bonzaa.app.data.JoinHousehold
+import com.bonzaa.app.data.JoinRequest
+import com.bonzaa.app.data.JoinRequestDecision
 import com.bonzaa.app.data.NewFeeding
 import com.bonzaa.app.data.NewFood
 import com.bonzaa.app.data.NewHousehold
 import com.bonzaa.app.data.NewPuppy
 import com.bonzaa.app.data.NewSymptom
+import com.bonzaa.app.data.PendingRequest
 import com.bonzaa.app.data.Puppy
 import com.bonzaa.app.data.SuspectAnalysis
 import com.bonzaa.app.data.TransferHead
@@ -42,6 +45,11 @@ data class UiState(
     val household: Household? = null,
     val householdMembers: List<HouseholdMember> = emptyList(),
     val yourUserId: String? = null,
+    val joinRequests: List<JoinRequest> = emptyList(),
+    // Set once this account has requested to join a family and is waiting on
+    // the head to approve it — needsHousehold stays true throughout, but the
+    // gate screen shows a waiting state instead of the create/join form.
+    val pendingRequest: PendingRequest? = null,
 ) {
     val selectedPuppy: Puppy? get() = puppies.find { it.id == selectedPuppyId }
     fun foodName(id: String): String = foods.find { it.id == id }?.name ?: "Unknown food"
@@ -96,6 +104,8 @@ class AppViewModel : ViewModel() {
             household = r.household,
             householdMembers = r.members,
             yourUserId = r.yourUserId,
+            joinRequests = r.joinRequests,
+            pendingRequest = r.pendingRequest,
             needsHousehold = r.household == null,
         )
         if (r.household != null) refreshAllInternal()
@@ -107,33 +117,51 @@ class AppViewModel : ViewModel() {
         refreshAllInternal()
     }
 
+    // A valid code only files a request now — it doesn't create membership.
+    // needsHousehold stays true; pendingRequest is what switches the gate
+    // screen from the create/join form to a "waiting for approval" state.
     fun joinHousehold(inviteCode: String) = launchSafe {
         val r = api.joinHousehold(JoinHousehold(inviteCode))
-        _state.value = _state.value.copy(household = r.household, needsHousehold = false)
-        refreshAllInternal()
+        _state.value = _state.value.copy(pendingRequest = PendingRequest(householdName = r.householdName))
+    }
+
+    fun cancelJoinRequest() = launchSafe {
+        api.cancelJoinRequest()
+        _state.value = _state.value.copy(pendingRequest = null)
+    }
+
+    fun approveJoinRequest(userId: String) = launchSafe {
+        api.approveJoinRequest(JoinRequestDecision(userId))
+        loadFamilyInternal()
+    }
+
+    fun declineJoinRequest(userId: String) = launchSafe {
+        api.declineJoinRequest(JoinRequestDecision(userId))
+        loadFamilyInternal()
     }
 
     /** Refreshes the family roster + invite code — call when opening the family panel. */
-    fun loadFamily() = launchSafe {
+    fun loadFamily() = launchSafe { loadFamilyInternal() }
+
+    private suspend fun loadFamilyInternal() {
         val r = api.getHousehold()
         _state.value = _state.value.copy(
             household = r.household,
             householdMembers = r.members,
             yourUserId = r.yourUserId,
+            joinRequests = r.joinRequests,
             needsHousehold = r.household == null,
         )
     }
 
     fun removeFamilyMember(userId: String) = launchSafe {
         api.removeMember(userId)
-        val r = api.getHousehold()
-        _state.value = _state.value.copy(household = r.household, householdMembers = r.members, yourUserId = r.yourUserId)
+        loadFamilyInternal()
     }
 
     fun transferHeadship(userId: String) = launchSafe {
         api.transferHead(TransferHead(userId))
-        val r = api.getHousehold()
-        _state.value = _state.value.copy(household = r.household, householdMembers = r.members, yourUserId = r.yourUserId)
+        loadFamilyInternal()
     }
 
     fun leaveFamily() = launchSafe {
@@ -141,6 +169,7 @@ class AppViewModel : ViewModel() {
         _state.value = _state.value.copy(
             household = null,
             householdMembers = emptyList(),
+            joinRequests = emptyList(),
             needsHousehold = true,
             puppies = emptyList(),
             foods = emptyList(),

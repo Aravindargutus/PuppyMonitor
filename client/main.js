@@ -94,6 +94,14 @@ const T = {
     hh_make_head: 'Make head',
     hh_make_head_q: (n) => `Make ${n} the head of your family?`,
     hh_make_head_msg: 'They will be able to remove members and manage the family. You will become a regular member.',
+    hh_pending_title: 'Request sent',
+    hh_pending_msg: (n) => `Waiting for the head of "${n}" to approve your request to join.`,
+    hh_pending_msg_generic: 'Waiting for the head of the family to approve your request to join.',
+    hh_pending_cancel: 'Cancel request',
+    hh_join_requests: 'Waiting for approval',
+    hh_approve: 'Approve',
+    hh_decline: 'Decline',
+    hh_decline_q: (n) => `Decline ${n}'s request to join?`,
     hh_head_transferred: (n) => `${n} is now the head`,
     sym: {
       'vomiting': 'vomiting', 'diarrhea': 'diarrhea', 'bloody drool': 'bloody drool',
@@ -193,6 +201,14 @@ const T = {
     hh_make_head: 'தலைவராக மாற்று',
     hh_make_head_q: (n) => `${n}-ஐ உங்கள் குடும்பத்தின் தலைவராக மாற்றவா?`,
     hh_make_head_msg: 'அவர்கள் உறுப்பினர்களை நீக்கவும் குடும்பத்தை நிர்வகிக்கவும் முடியும். நீங்கள் ஒரு சாதாரண உறுப்பினராக மாறுவீர்கள்.',
+    hh_pending_title: 'கோரிக்கை அனுப்பப்பட்டது',
+    hh_pending_msg: (n) => `"${n}" குடும்பத்தின் தலைவர் உங்கள் சேர்க்கை கோரிக்கையை அங்கீகரிக்க காத்திருக்கிறது.`,
+    hh_pending_msg_generic: 'குடும்பத்தின் தலைவர் உங்கள் சேர்க்கை கோரிக்கையை அங்கீகரிக்க காத்திருக்கிறது.',
+    hh_pending_cancel: 'கோரிக்கையை ரத்து செய்',
+    hh_join_requests: 'அனுமதிக்காக காத்திருப்பவர்கள்',
+    hh_approve: 'அனுமதி',
+    hh_decline: 'நிராகரி',
+    hh_decline_q: (n) => `${n}-இன் சேர்க்கை கோரிக்கையை நிராகரிக்கவா?`,
     hh_head_transferred: (n) => `${n} இப்போது தலைவர்`,
     sym: {
       'vomiting': 'வாந்தி', 'diarrhea': 'வயிற்றுப்போக்கு', 'bloody drool': 'இரத்த உமிழ்நீர்',
@@ -255,6 +271,7 @@ const state = {
   symptoms: [],
   household: null, // { id, name, invite_code, is_head, role }
   userId: null,
+  pendingRequest: null, // { household_name } — set while waiting on a join to be approved
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -1031,6 +1048,7 @@ async function showApp() {
     const r = await call('/household');
     state.household = r.household;
     state.userId = r.your_user_id;
+    state.pendingRequest = r.pending_request || null;
   } catch (e) {
     return; // call() already routed to the auth or household gate
   }
@@ -1073,7 +1091,9 @@ let hhMode = 'create'; // 'create' | 'join'
 function paintHouseholdLabels() {
   $('#hhTagline').textContent = t('hh_tagline');
   $('#hhLangBtn').textContent = lang === 'en' ? 'தமிழ்' : 'English';
-  $('#hhStatus').textContent = hhMode === 'create' ? t('hh_create_title') : t('hh_join_title');
+  $('#hhStatus').textContent = state.pendingRequest
+    ? t('hh_pending_title')
+    : (hhMode === 'create' ? t('hh_create_title') : t('hh_join_title'));
   $('#hhSwitch').textContent = hhMode === 'create' ? t('hh_to_join') : t('hh_to_create');
   $('#hh-name-l').textContent = t('hh_name');
   $('#hh-name').placeholder = t('hh_name_ph');
@@ -1081,11 +1101,18 @@ function paintHouseholdLabels() {
   $('#hh-code-l').textContent = t('hh_code');
   $('#hh-code').placeholder = t('hh_code_ph');
   $('#hh-join-submit').textContent = t('hh_join_btn');
+  $('#hh-pending-msg').textContent = state.pendingRequest?.household_name
+    ? t('hh_pending_msg', esc(state.pendingRequest.household_name))
+    : t('hh_pending_msg_generic');
+  $('#hh-pending-cancel').textContent = t('hh_pending_cancel');
 }
 
 function renderHouseholdGate() {
-  $('#hh-create-form').hidden = hhMode !== 'create';
-  $('#hh-join-form').hidden = hhMode !== 'join';
+  const pending = !!state.pendingRequest;
+  $('#hh-pending').hidden = !pending;
+  $('#hh-create-form').hidden = pending || hhMode !== 'create';
+  $('#hh-join-form').hidden = pending || hhMode !== 'join';
+  $('#hhSwitch').hidden = pending;
   $('#hh-msg').className = 'auth-msg';
   $('#hh-msg').textContent = '';
   paintHouseholdLabels();
@@ -1135,14 +1162,23 @@ $('#hh-join-form').addEventListener('submit', async (e) => {
   msg.className = 'auth-msg';
   msg.textContent = t('hh_joining');
   try {
+    // A valid code only files a request now — the head still has to approve
+    // it before this account actually becomes a member.
     const r = await call('/household/join', { method: 'POST', body: JSON.stringify({ invite_code: code }) });
-    state.household = r.household;
-    toast(t('hh_joined', r.household.name));
-    enterApp();
+    state.pendingRequest = { household_name: r.household_name };
+    renderHouseholdGate();
   } catch (err) {
     msg.className = 'auth-msg err';
     msg.textContent = err.message;
   }
+});
+
+$('#hh-pending-cancel').addEventListener('click', async () => {
+  try {
+    await call('/household/join-requests/cancel', { method: 'POST' });
+    state.pendingRequest = null;
+    renderHouseholdGate();
+  } catch (e) { toast(e.message); }
 });
 
 /* ---------- family panel ---------- */
@@ -1155,11 +1191,11 @@ async function openFamilySheet() {
     state.household = r.household;
     state.userId = r.your_user_id;
     if (!state.household) return showHouseholdGate();
-    renderFamilySheet(r.members);
+    renderFamilySheet(r.members, r.join_requests || []);
   } catch (e) { toast(e.message); }
 }
 
-function renderFamilySheet(members) {
+function renderFamilySheet(members, joinRequests) {
   const hh = state.household;
   openSheet(`
     <h3>${t('hh_panel_title')}</h3>
@@ -1169,6 +1205,18 @@ function renderFamilySheet(members) {
       <code id="inviteCodeText">${esc(hh.invite_code)}</code>
       <button type="button" class="chip" id="copyInviteBtn">${t('hh_copy')}</button>
     </div>
+    ${hh.is_head && joinRequests.length ? `
+    <div class="lbl">${t('hh_join_requests')}</div>
+    <div class="member-list">
+      ${joinRequests.map((r) => `
+        <div class="member-row">
+          <div class="member-name">${esc(r.display_name || r.email || r.user_id)}</div>
+          <div style="display:flex;gap:6px;">
+            <button type="button" class="chip" data-approve-request="${esc(r.user_id)}">${t('hh_approve')}</button>
+            <button type="button" class="chip" data-decline-request="${esc(r.user_id)}" data-decline-name="${esc(r.display_name || r.email || r.user_id)}">${t('hh_decline')}</button>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
     <div class="lbl">${t('hh_members')}</div>
     <div class="member-list">
       ${members.map((m) => `
@@ -1197,7 +1245,34 @@ function renderFamilySheet(members) {
   $('#sheet').querySelectorAll('[data-remove-member]').forEach((btn) => {
     btn.onclick = () => confirmRemoveMember(btn.dataset.removeMember, btn.dataset.removeName);
   });
+  $('#sheet').querySelectorAll('[data-approve-request]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await call('/household/join-requests/approve', { method: 'POST', body: JSON.stringify({ user_id: btn.dataset.approveRequest }) });
+        openFamilySheet();
+      } catch (e) { toast(e.message); }
+    };
+  });
+  $('#sheet').querySelectorAll('[data-decline-request]').forEach((btn) => {
+    btn.onclick = () => confirmDeclineRequest(btn.dataset.declineRequest, btn.dataset.declineName);
+  });
   $('#leaveFamilyBtn').onclick = confirmLeaveFamily;
+}
+
+function confirmDeclineRequest(userId, name) {
+  openSheet(`
+    <h3>${t('hh_decline_q', esc(name))}</h3>
+    <div class="confirm-actions">
+      <button class="btn-ghost" id="cancel-decline-request">${t('cancel')}</button>
+      <button class="btn-danger" id="confirm-decline-request">${t('hh_decline')}</button>
+    </div>`);
+  $('#cancel-decline-request').onclick = () => openFamilySheet();
+  $('#confirm-decline-request').onclick = async () => {
+    try {
+      await call('/household/join-requests/decline', { method: 'POST', body: JSON.stringify({ user_id: userId }) });
+      openFamilySheet();
+    } catch (e) { toast(e.message); }
+  };
 }
 
 function confirmMakeHead(userId, name) {

@@ -33,6 +33,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.bonzaa.app.data.Household
 import com.bonzaa.app.data.HouseholdMember
+import com.bonzaa.app.data.JoinRequest
+import com.bonzaa.app.data.PendingRequest
 import com.bonzaa.app.ui.LocalLang
 
 /**
@@ -46,6 +48,8 @@ fun HouseholdGateScreen(
     onToggleLang: () -> Unit,
     onCreate: (name: String) -> Unit,
     onJoin: (code: String) -> Unit,
+    pendingRequest: PendingRequest?,
+    onCancelRequest: () -> Unit,
     busy: Boolean,
     error: String?,
 ) {
@@ -73,6 +77,36 @@ fun HouseholdGateScreen(
         )
 
         Spacer(Modifier.height(40.dp))
+
+        if (pendingRequest != null) {
+            // A code only files a request — someone in the family still has to
+            // approve it, so this is where the requester waits until they do.
+            Text(lang["hh_pending_title"], style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                pendingRequest.householdName?.let { lang.fmt("hh_pending_msg", it) } ?: lang["hh_pending_msg_generic"],
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+            if (busy) {
+                CircularProgressIndicator()
+            } else {
+                OutlinedButton(onClick = onCancelRequest, modifier = Modifier.fillMaxWidth()) {
+                    Text(lang["hh_pending_cancel"])
+                }
+            }
+            error?.let {
+                Spacer(Modifier.height(14.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+            }
+            Spacer(Modifier.height(20.dp))
+            OutlinedButton(onClick = onToggleLang) {
+                Text(if (langCode == "en") "தமிழ்" else "English")
+            }
+            return@Column
+        }
 
         Text(
             if (mode == "create") lang["hh_create_title"] else lang["hh_join_title"],
@@ -136,10 +170,13 @@ fun HouseholdGateScreen(
 fun FamilySheet(
     household: Household,
     members: List<HouseholdMember>,
+    joinRequests: List<JoinRequest> = emptyList(),
     yourUserId: String?,
     onDismiss: () -> Unit,
     onRemoveMember: (userId: String) -> Unit,
     onMakeHead: (userId: String) -> Unit,
+    onApproveRequest: (userId: String) -> Unit = {},
+    onDeclineRequest: (userId: String) -> Unit = {},
     onLeave: () -> Unit,
 ) {
     val lang = LocalLang.current
@@ -147,6 +184,7 @@ fun FamilySheet(
     var copied by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<HouseholdMember?>(null) }
     var confirmMakeHead by remember { mutableStateOf<HouseholdMember?>(null) }
+    var confirmDeclineRequest by remember { mutableStateOf<JoinRequest?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -175,6 +213,31 @@ fun FamilySheet(
                     clipboard.setText(AnnotatedString(household.inviteCode))
                     copied = true
                 }) { Text(if (copied) lang["hh_copied"] else lang["hh_copy"]) }
+            }
+
+            if (household.isHead && joinRequests.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(lang["hh_join_requests"], style = MaterialTheme.typography.labelLarge)
+                Column {
+                    joinRequests.forEach { r ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                r.displayName?.takeIf { it.isNotBlank() } ?: r.email ?: r.userId,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Row {
+                                TextButton(onClick = { onApproveRequest(r.userId) }) { Text(lang["hh_approve"]) }
+                                TextButton(onClick = { confirmDeclineRequest = r }) { Text(lang["hh_decline"]) }
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -238,6 +301,17 @@ fun FamilySheet(
                 TextButton(onClick = { onMakeHead(m.userId); confirmMakeHead = null }) { Text(lang["hh_make_head"]) }
             },
             dismissButton = { TextButton(onClick = { confirmMakeHead = null }) { Text(lang["cancel"]) } },
+        )
+    }
+
+    confirmDeclineRequest?.let { r ->
+        AlertDialog(
+            onDismissRequest = { confirmDeclineRequest = null },
+            title = { Text(lang.fmt("hh_decline_q", r.displayName?.takeIf { it.isNotBlank() } ?: r.email ?: r.userId)) },
+            confirmButton = {
+                TextButton(onClick = { onDeclineRequest(r.userId); confirmDeclineRequest = null }) { Text(lang["hh_decline"]) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeclineRequest = null }) { Text(lang["cancel"]) } },
         )
     }
 

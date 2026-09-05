@@ -136,6 +136,22 @@ data class HouseholdMember(
     @SerialName("joined_at") val joinedAt: String? = null,
 )
 
+/** Someone who presented a valid invite code but hasn't been approved yet — shown only to the head. */
+@Serializable
+data class JoinRequest(
+    @SerialName("user_id") val userId: String,
+    val email: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("requested_at") val requestedAt: String? = null,
+)
+
+/** What GET /household hands the *requester* while they're waiting on a decision. */
+@Serializable
+data class PendingRequest(
+    @SerialName("household_name") val householdName: String? = null,
+    @SerialName("requested_at") val requestedAt: String? = null,
+)
+
 /* ---------- response wrappers ---------- */
 
 @Serializable data class PuppiesResponse(val puppies: List<Puppy>)
@@ -151,11 +167,21 @@ data class HouseholdMember(
     val household: Household? = null,
     val members: List<HouseholdMember> = emptyList(),
     @SerialName("your_user_id") val yourUserId: String? = null,
+    @SerialName("join_requests") val joinRequests: List<JoinRequest> = emptyList(),
+    @SerialName("pending_request") val pendingRequest: PendingRequest? = null,
 )
 @Serializable data class HouseholdCreateResponse(val household: Household)
+@Serializable data class JoinPendingResponse(
+    val pending: Boolean = true,
+    @SerialName("household_name") val householdName: String? = null,
+)
 @Serializable data class LeftResponse(val left: Boolean = true)
 @Serializable data class RemovedResponse(val removed: String)
 @Serializable data class TransferHeadResponse(val transferred: String)
+@Serializable data class JoinRequestDecision(@SerialName("user_id") val userId: String)
+@Serializable data class ApprovedResponse(val approved: String)
+@Serializable data class DeclinedResponse(val declined: String)
+@Serializable data class CancelledResponse(val cancelled: Boolean = true)
 
 /* ---------- request bodies ---------- */
 
