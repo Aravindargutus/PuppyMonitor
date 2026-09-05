@@ -270,6 +270,25 @@ async function releaseHouseholdLock(app, householdId, expiry) {
 	).catch((e) => console.error('failed to release household lock:', e.message || e));
 }
 
+// ctx.household.is_head is a snapshot taken by getMembership() in the
+// dispatcher, before the route handler runs and well before it acquires the
+// household lock — a gap another request can complete a full head-changing
+// operation inside of. Holding the lock guarantees nothing else can act on
+// this household WHILE we hold it, but says nothing about whether the
+// permission check that let us get here is still true — it was evaluated
+// against a read from before we even asked for the lock. Every handler that
+// gates on "am I the head" or branches on it must re-derive that fact from a
+// fresh read taken AFTER acquiring the lock, not trust ctx.household.is_head
+// for anything inside the locked section.
+async function isCurrentHead(app, householdId, userId) {
+	const row = await zcqlOne(
+		app.zcql(),
+		`SELECT ROWID FROM Households WHERE ROWID = ${householdId} AND HeadUserId = '${esc(String(userId))}'`,
+		'Households'
+	);
+	return !!row;
+}
+
 /* ---------- recent-removal denylist ---------- */
 // DELETE /household/members rotates the invite code before deleting the
 // membership specifically so the OLD code dies before removal takes effect —
@@ -751,7 +770,14 @@ const routes = {
 		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
 		try {
 			const zcql = app.zcql();
-			if (ctx.household.is_head) {
+			// Not ctx.household.is_head — see isCurrentHead(). A concurrent
+			// transfer-head could have made this caller head (or taken it away
+			// from them) between request start and acquiring the lock just now;
+			// branching on the stale flag here could skip the "transfer first"
+			// requirement for someone who just became head, or wrongly delete
+			// the household out from under a caller who no longer is.
+			const isHead = await isCurrentHead(app, ctx.household.id, ctx.user.user_id);
+			if (isHead) {
 				const others = await zcqlOne(
 					zcql,
 					`SELECT ROWID FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
@@ -767,7 +793,7 @@ const routes = {
 				'HouseholdMembers'
 			);
 			if (membership) await app.datastore().table('HouseholdMembers').deleteRow(Number(membership.ROWID));
-			if (ctx.household.is_head) {
+			if (isHead) {
 				// The household row itself (lock included) is gone after this —
 				// releaseHouseholdLock's UPDATE below simply matches zero rows.
 				await app.datastore().table('Households').deleteRow(ctx.household.id);
@@ -802,6 +828,16 @@ const routes = {
 		// interleave with each other on this household at all.
 		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
 		try {
+			// The is_head check above the lock is a stale read from before we
+			// even asked for it — re-verify against a fresh read now that we
+			// actually hold the lock. Without this, headship taken away from
+			// this caller by another operation that completed in the gap
+			// between request start and lock acquisition would go unnoticed,
+			// and this caller could still transfer away a headship they no
+			// longer hold.
+			if (!(await isCurrentHead(app, ctx.household.id, ctx.user.user_id))) {
+				return sendJson(res, 409, { error: 'You are no longer the head — refresh and try again' });
+			}
 			const zcql = app.zcql();
 			const target = await zcqlOne(
 				zcql,
@@ -845,6 +881,14 @@ const routes = {
 
 		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
 		try {
+			// Same reasoning as transfer-head: the is_head check above the lock
+			// read a stale snapshot from before we asked for it. Re-verify now
+			// that we actually hold the lock, so a caller who was head at
+			// request start but had headship transferred away from them in the
+			// gap before acquiring the lock can't still remove a member.
+			if (!(await isCurrentHead(app, ctx.household.id, ctx.user.user_id))) {
+				return sendJson(res, 409, { error: 'You are no longer the head — refresh and try again' });
+			}
 			const zcql = app.zcql();
 			const member = await zcqlOne(
 				zcql,
