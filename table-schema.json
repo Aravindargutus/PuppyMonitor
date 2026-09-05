@@ -6,7 +6,8 @@
       "columns": [
         { "column_name": "Name", "data_type": "varchar", "max_length": 150, "is_mandatory": true },
         { "column_name": "InviteCode", "data_type": "varchar", "max_length": 12, "is_mandatory": true, "is_unique": true },
-        { "column_name": "HeadUserId", "data_type": "varchar", "max_length": 30, "is_mandatory": true }
+        { "column_name": "HeadUserId", "data_type": "varchar", "max_length": 30, "is_mandatory": true },
+        { "column_name": "LockedUntilMs", "data_type": "bigint", "is_mandatory": false, "_comment": "Lease-based mutex backing acquireHouseholdLock()/releaseHouseholdLock() in functions/bonzaa_api/index.js — serializes transfer-head, remove-member, and leave against each other per household so none of their read-then-write sequences can interleave. NULL/0/expired = unlocked." }
       ]
     },
     {

@@ -7,7 +7,8 @@ const crypto = require('crypto');
  * Bonzaa Puppy Food Tracker — Advanced I/O API
  *
  * Tables (Data Store):
- *   Households      : Name, InviteCode(varchar, unique), HeadUserId(varchar)
+ *   Households      : Name, InviteCode(varchar, unique), HeadUserId(varchar),
+ *                     LockedUntilMs(bigint) — see acquireHouseholdLock()
  *   HouseholdMembers: HouseholdId(bigint), CatalystUserId(varchar, unique),
  *                     Email, DisplayName, Role('head'|'member')
  *   Puppies         : Name, Breed, BirthDate(date), PhotoUrl(text), Notes(text),
@@ -223,6 +224,50 @@ async function checkRateLimit(app, bucket, userId, maxPerHour) {
 		// Data Store hiccup: fail open rather than lock a family out of the app over it.
 		console.error('rate limit check failed, allowing request:', e.message || e);
 	}
+}
+
+/* ---------- household membership lock ---------- */
+// transfer-head, remove-member, and leave all read HouseholdMembers/Households
+// state and then write to one or both of those tables, and any two of them can
+// race on the same household. A "recheck right after the risky write" approach
+// (tried in an earlier round) is provably insufficient: the recheck only
+// catches a conflicting write that already landed BEFORE the recheck runs — a
+// conflicting request whose own check-then-write straddles our recheck can
+// still land afterward, reproduced live as HeadUserId pointing at a user whose
+// HouseholdMembers row had already been deleted by an already-in-flight
+// removal. Closing this for real needs actual mutual exclusion around the
+// whole read-then-write sequence, not another point-in-time check. Catalyst
+// has no cross-table transactions, so this builds a lease-based lock on top of
+// a single column (Households.LockedUntilMs) using the same atomic
+// conditional-UPDATE primitive proven live elsewhere in this file (rate
+// limiting, transfer-head's now-superseded CAS): acquiring is one UPDATE that
+// only succeeds if the existing lease is absent or expired, so of any two
+// concurrent acquire attempts on the same household, at most one can win.
+// A short lease (not an unconditional "locked" flag) means a request that
+// crashes mid-critical-section can't strand the household locked forever.
+const HOUSEHOLD_LOCK_LEASE_MS = 5000;
+
+async function acquireHouseholdLock(app, householdId) {
+	const now = Date.now();
+	const expiry = now + HOUSEHOLD_LOCK_LEASE_MS;
+	const won = await zcqlOne(
+		app.zcql(),
+		`UPDATE Households SET LockedUntilMs = ${expiry} WHERE ROWID = ${householdId} AND (LockedUntilMs IS NULL OR LockedUntilMs < ${now})`,
+		'Households'
+	);
+	if (!won) {
+		throw new ApiError(409, { error: 'Your family is mid-update elsewhere — please try again in a moment' });
+	}
+	return expiry;
+}
+
+// Conditioned on still holding the exact lease we acquired, not unconditional —
+// an unconditional release could clear a lease a DIFFERENT holder has already
+// acquired after ours expired (e.g. this request ran unexpectedly long).
+async function releaseHouseholdLock(app, householdId, expiry) {
+	await app.zcql().executeZCQLQuery(
+		`UPDATE Households SET LockedUntilMs = 0 WHERE ROWID = ${householdId} AND LockedUntilMs = ${expiry}`
+	).catch((e) => console.error('failed to release household lock:', e.message || e));
 }
 
 /* ---------- recent-removal denylist ---------- */
@@ -700,27 +745,37 @@ const routes = {
 
 	'POST /household/leave': async (app, req, res, query, ctx) => {
 		if (!ctx.household) return sendJson(res, 409, { error: 'no_household', message: 'You are not in a family' });
-		const zcql = app.zcql();
-		if (ctx.household.is_head) {
-			const others = await zcqlOne(
+		// Locked for the same reason as transfer-head and remove-member: leaving
+		// deletes a HouseholdMembers row, which is exactly the write a concurrent
+		// transfer-head must not straddle if it's making THIS user head right now.
+		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
+		try {
+			const zcql = app.zcql();
+			if (ctx.household.is_head) {
+				const others = await zcqlOne(
+					zcql,
+					`SELECT ROWID FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
+					'HouseholdMembers'
+				);
+				if (others) {
+					return sendJson(res, 400, { error: 'Transfer headship to another member first, or remove them all, before leaving' });
+				}
+			}
+			const membership = await zcqlOne(
 				zcql,
-				`SELECT ROWID FROM HouseholdMembers WHERE HouseholdId = ${ctx.household.id} AND CatalystUserId != '${esc(String(ctx.user.user_id))}'`,
+				`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
 				'HouseholdMembers'
 			);
-			if (others) {
-				return sendJson(res, 400, { error: 'Transfer headship to another member first, or remove them all, before leaving' });
+			if (membership) await app.datastore().table('HouseholdMembers').deleteRow(Number(membership.ROWID));
+			if (ctx.household.is_head) {
+				// The household row itself (lock included) is gone after this —
+				// releaseHouseholdLock's UPDATE below simply matches zero rows.
+				await app.datastore().table('Households').deleteRow(ctx.household.id);
 			}
+			sendJson(res, 200, { left: true });
+		} finally {
+			await releaseHouseholdLock(app, ctx.household.id, lockExpiry);
 		}
-		const membership = await zcqlOne(
-			zcql,
-			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
-			'HouseholdMembers'
-		);
-		if (membership) await app.datastore().table('HouseholdMembers').deleteRow(Number(membership.ROWID));
-		if (ctx.household.is_head) {
-			await app.datastore().table('Households').deleteRow(ctx.household.id);
-		}
-		sendJson(res, 200, { left: true });
 	},
 
 	'POST /household/transfer-head': async (app, req, res, query, ctx) => {
@@ -731,79 +786,52 @@ const routes = {
 		if (targetUserId === String(ctx.user.user_id)) {
 			return sendJson(res, 400, { error: 'Choose someone else to become head' });
 		}
-		const zcql = app.zcql();
-		const target = await zcqlOne(
-			zcql,
-			`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
-			'HouseholdMembers'
-		);
-		if (!target || Number(target.HouseholdId) !== ctx.household.id) {
-			return sendJson(res, 404, { error: 'Not a member of your family' });
+
+		// A prior version of this fix relied on an atomic CAS on HeadUserId
+		// plus a recheck of the target's membership right after. That's
+		// provably insufficient — reproduced live: the recheck only catches a
+		// conflicting DELETE /household/members that landed BEFORE the
+		// recheck ran, not one whose own check-then-write straddles it,
+		// because the CAS and the recheck are still two separate points in
+		// time with a gap between them a concurrent request can land in. The
+		// actual fix is mutual exclusion around the ENTIRE read-then-write
+		// sequence, held for as long as any of this handler's reasoning about
+		// "is the target still a member" needs to stay true — see
+		// acquireHouseholdLock(). DELETE /household/members and
+		// POST /household/leave take the same lock, so none of the three can
+		// interleave with each other on this household at all.
+		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
+		try {
+			const zcql = app.zcql();
+			const target = await zcqlOne(
+				zcql,
+				`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
+				'HouseholdMembers'
+			);
+			if (!target || Number(target.HouseholdId) !== ctx.household.id) {
+				return sendJson(res, 404, { error: 'Not a member of your family' });
+			}
+			const selfMembership = await zcqlOne(
+				zcql,
+				`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
+				'HouseholdMembers'
+			);
+			if (!selfMembership) return sendJson(res, 404, { error: 'Membership not found' });
+
+			// No conditional WHERE needed on HeadUserId here any more — holding
+			// the lock already guarantees nothing else touching this
+			// household's membership state can be interleaved with us.
+			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, HeadUserId: targetUserId });
+			await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(target.ROWID), Role: 'head' });
+			await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(selfMembership.ROWID), Role: 'member' });
+
+			sendJson(res, 200, { transferred: targetUserId });
+			await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, '👑 Family headship changed — open Bonzaa for details', {
+				type: 'head_transferred'
+			}).catch((e) => console.error('notify transfer-head failed:', e));
+		} finally {
+			await releaseHouseholdLock(app, ctx.household.id, lockExpiry);
 		}
-		const selfMembership = await zcqlOne(
-			zcql,
-			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(String(ctx.user.user_id))}'`,
-			'HouseholdMembers'
-		);
-		if (!selfMembership) return sendJson(res, 404, { error: 'Membership not found' });
-
-		// The actual authorization gate: only succeeds if THIS caller is still
-		// the head at the instant the database applies it. The is_head check
-		// above reads a snapshot taken at request start, so two concurrent
-		// transfer-head calls (the same head firing twice, or racing another
-		// head-changing action) can both pass it and both believe they're
-		// authorized — confirmed live: HouseholdMembers ended up with two
-		// Role='head' rows after a concurrent-transfer repro. A single
-		// conditional UPDATE is evaluated as one statement by the database,
-		// so of two concurrent attempts sharing WHERE HeadUserId = '<caller>',
-		// only one can still find it true and land; the loser gets zero rows
-		// back and must abort here, before touching HouseholdMembers at all.
-		const won = await zcqlOne(
-			zcql,
-			`UPDATE Households SET HeadUserId = '${esc(targetUserId)}' WHERE ROWID = ${ctx.household.id} AND HeadUserId = '${esc(String(ctx.user.user_id))}'`,
-			'Households'
-		);
-		if (!won) {
-			return sendJson(res, 409, { error: 'Headship already changed by someone else — refresh and try again' });
-		}
-
-		// The CAS above only guards against a concurrent transfer-head — it
-		// says nothing about a concurrent DELETE /household/members removing
-		// the very person we just made head. `target` was read before the CAS,
-		// so a removal landing in between leaves Households.HeadUserId pointing
-		// at someone with no HouseholdMembers row at all: nobody can act as
-		// head (the new "head" has no membership to be recognized by), and
-		// nobody can fix it (the old head just gave that up) — confirmed as a
-		// real, reproducible bug. Re-check the target still exists right after
-		// winning the CAS, and if not, compensate by reverting HeadUserId back
-		// to the caller rather than leaving a dangling reference. This can't be
-		// made airtight without cross-table transactions, but it turns a
-		// permanently-stuck household into, at worst, a "try again" for the
-		// caller — DELETE /household/members closes the same gap from its side
-		// by refusing to remove whoever currently holds HeadUserId.
-		const targetStillMember = await zcqlOne(
-			zcql,
-			`SELECT ROWID FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}' AND HouseholdId = ${ctx.household.id}`,
-			'HouseholdMembers'
-		);
-		if (!targetStillMember) {
-			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, HeadUserId: String(ctx.user.user_id) })
-				.catch((e) => console.error('failed to revert HeadUserId after target vanished:', e));
-			return sendJson(res, 409, { error: 'That member was removed during the transfer — try again' });
-		}
-
-		// Households.HeadUserId (just updated atomically above) is what every
-		// is_head check actually reads — these two Role updates are display-only
-		// from here on. Promote-before-demote no longer matters for correctness,
-		// only for what the member list shows if one of these two calls fails
-		// partway through.
-		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(target.ROWID), Role: 'head' });
-		await app.datastore().table('HouseholdMembers').updateRow({ ROWID: Number(selfMembership.ROWID), Role: 'member' });
-
-		sendJson(res, 200, { transferred: targetUserId });
-		await pushToHouseholdMembers(app, ctx.household.id, ctx.user.user_id, '👑 Family headship changed — open Bonzaa for details', {
-			type: 'head_transferred'
-		}).catch((e) => console.error('notify transfer-head failed:', e));
 	},
 
 	'DELETE /household/members': async (app, req, res, query, ctx) => {
@@ -814,49 +842,50 @@ const routes = {
 		if (targetUserId === String(ctx.user.user_id)) {
 			return sendJson(res, 400, { error: 'Use leave, not remove, for yourself' });
 		}
-		const zcql = app.zcql();
-		const member = await zcqlOne(
-			zcql,
-			`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
-			'HouseholdMembers'
-		);
-		if (!member || Number(member.HouseholdId) !== ctx.household.id) {
-			return sendJson(res, 404, { error: 'Not a member of your family' });
+
+		const lockExpiry = await acquireHouseholdLock(app, ctx.household.id);
+		try {
+			const zcql = app.zcql();
+			const member = await zcqlOne(
+				zcql,
+				`SELECT ROWID, HouseholdId FROM HouseholdMembers WHERE CatalystUserId = '${esc(targetUserId)}'`,
+				'HouseholdMembers'
+			);
+			if (!member || Number(member.HouseholdId) !== ctx.household.id) {
+				return sendJson(res, 404, { error: 'Not a member of your family' });
+			}
+			// Holding the lock is what makes this check meaningful now — with
+			// it, nothing can promote this exact target to head between this
+			// read and the delete below.
+			const currentHousehold = await zcqlOne(
+				zcql,
+				`SELECT HeadUserId FROM Households WHERE ROWID = ${ctx.household.id}`,
+				'Households'
+			);
+			if (currentHousehold && String(currentHousehold.HeadUserId) === targetUserId) {
+				return sendJson(res, 409, { error: 'This member just became the head — transfer headship away from them first' });
+			}
+			// Denylist the removed user for this household BEFORE anything else —
+			// so it's already in place before the rotate/delete sequence below even
+			// starts, closing POST /household/join to them regardless of which
+			// invite code (old or new) they present during that window.
+			await markRecentlyRemoved(app, ctx.household.id, targetUserId);
+			// Rotate the invite code BEFORE deleting the membership, not after: the
+			// removed member saw this code while they were in the household (every
+			// member can see it, to help grow the family), so if the delete lands
+			// first there's a real window where the old code still works and a
+			// flood of join attempts could land in it. Rotating first means the old
+			// code is already dead before the removal takes effect — no window at all,
+			// not just a smaller one.
+			const newCode = await generateUniqueInviteCode(app);
+			if (newCode) {
+				await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, InviteCode: newCode });
+			}
+			await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
+			sendJson(res, 200, { removed: targetUserId });
+		} finally {
+			await releaseHouseholdLock(app, ctx.household.id, lockExpiry);
 		}
-		// A fresh read, not ctx.household.head_user_id (a stale snapshot from
-		// request start) — this is the other half of the fix in
-		// 'POST /household/transfer-head': if a transfer just landed and made
-		// this exact target the head, removing them now would leave
-		// Households.HeadUserId pointing at someone we're about to delete from
-		// HouseholdMembers, the same dangling-head state from the opposite
-		// direction. Refusing here doesn't need a compensating step, unlike the
-		// transfer side — nothing has been written yet.
-		const currentHousehold = await zcqlOne(
-			zcql,
-			`SELECT HeadUserId FROM Households WHERE ROWID = ${ctx.household.id}`,
-			'Households'
-		);
-		if (currentHousehold && String(currentHousehold.HeadUserId) === targetUserId) {
-			return sendJson(res, 409, { error: 'This member just became the head — transfer headship away from them first' });
-		}
-		// Denylist the removed user for this household BEFORE anything else —
-		// so it's already in place before the rotate/delete sequence below even
-		// starts, closing POST /household/join to them regardless of which
-		// invite code (old or new) they present during that window.
-		await markRecentlyRemoved(app, ctx.household.id, targetUserId);
-		// Rotate the invite code BEFORE deleting the membership, not after: the
-		// removed member saw this code while they were in the household (every
-		// member can see it, to help grow the family), so if the delete lands
-		// first there's a real window where the old code still works and a
-		// flood of join attempts could land in it. Rotating first means the old
-		// code is already dead before the removal takes effect — no window at all,
-		// not just a smaller one.
-		const newCode = await generateUniqueInviteCode(app);
-		if (newCode) {
-			await app.datastore().table('Households').updateRow({ ROWID: ctx.household.id, InviteCode: newCode });
-		}
-		await app.datastore().table('HouseholdMembers').deleteRow(Number(member.ROWID));
-		sendJson(res, 200, { removed: targetUserId });
 	},
 
 	/* ---- puppies ---- */
