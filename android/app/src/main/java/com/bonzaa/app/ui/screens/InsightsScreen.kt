@@ -119,6 +119,11 @@ fun InsightsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(lang["suspects_title"], style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    lang.fmt("vet_share_for", state.selectedPuppy?.name ?: lang["your_puppy"]),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 state.analysisFor?.let {
                     Text(
                         "${lang.sym(it.symptom).replaceFirstChar(Char::uppercase)} · ${lang["onset_at"]} ${it.onsetAt.take(16)}",

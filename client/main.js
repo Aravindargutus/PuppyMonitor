@@ -817,8 +817,10 @@ function showAnalysis(symptom, analysis) {
   const suspects = analysis.suspects || [];
   const max = Math.max(0.01, ...suspects.map((s) => s.score));
   const label = symLabel(symptom.Symptom);
+  const puppy = selectedPuppy()?.Name || t('your_puppy');
   openSheet(`
     <h3>${t('suspects_title')}</h3>
+    <p class="s-sub">${t('vet_share_for', esc(puppy))}</p>
     <p class="s-sub">${esc(label[0].toUpperCase() + label.slice(1))} · ${t('onset_at')} ${esc((symptom.OnsetAt || '').slice(0, 16))}</p>
     ${suspects.length ? suspects.map((s, i) => `
       <div class="suspect">
