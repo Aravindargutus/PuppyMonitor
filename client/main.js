@@ -39,6 +39,7 @@ const T = {
     before_incidents: (x) => `before ${x} earlier incident(s)`, new_food_badge: 'NEW FOOD',
     vet_note: 'Correlation aid only — confirm with a veterinarian.',
     share_vet: '🩺 Share with vet', share_vet_copied: 'Copied — paste it for your vet',
+    share_vet_failed: "Couldn't copy — try selecting and copying the summary yourself",
     vet_share_title: 'Possible food suspects', vet_share_for: (n) => `For ${n}`,
     no_window_meals: 'No meals were logged in the 2–48 hours before it started, so there is nothing to analyze. Keep logging every meal for better results.',
     insights_hint: 'Tap an incident to see which foods were the likely cause.',
@@ -60,6 +61,7 @@ const T = {
     auth_to_signup: 'New here? Create an account',
     auth_to_signin: 'Already have an account? Sign in',
     auth_unavailable: 'Sign-in is loading. If this stays, refresh the page.',
+    load_failed_retry: "Couldn't load your data — tap to retry",
     t_signed_out: 'Signed out',
     su_first: 'First name', su_last: 'Last name', su_email: 'Email',
     su_submit: 'Create account', su_sending: 'Creating your account…',
@@ -84,7 +86,7 @@ const T = {
     hh_created: (n) => `${n} created 🎉`, hh_joined: (n) => `Joined ${n} 🎉`,
     hh_panel_title: '👨‍👩‍👧 Family',
     hh_invite_label: 'Invite code — share this with family to add them',
-    hh_copy: 'Copy', hh_copied: 'Copied!',
+    hh_copy: 'Copy', hh_copied: 'Copied!', hh_copy_failed: "Couldn't copy — select the code above instead",
     hh_members: 'Members', hh_you: 'you', hh_head: 'head',
     hh_remove: 'Remove', hh_leave: 'Leave family',
     hh_leave_q: 'Leave this family?', hh_leave_msg: 'You will need an invite code to rejoin.',
@@ -146,6 +148,7 @@ const T = {
     before_incidents: (x) => `முந்தைய ${x} சம்பவங்களுக்கு முன்பும்`, new_food_badge: 'புதிய உணவு',
     vet_note: 'இது தொடர்பு அடிப்படையிலான உதவி மட்டுமே — கால்நடை மருத்துவரிடம் உறுதிப்படுத்தவும்.',
     share_vet: '🩺 மருத்துவரிடம் பகிர்', share_vet_copied: 'நகலெடுக்கப்பட்டது — மருத்துவரிடம் ஒட்டவும்',
+    share_vet_failed: 'நகலெடுக்க முடியவில்லை — சுருக்கத்தை நீங்களே தேர்ந்தெடுத்து நகலெடுக்கவும்',
     vet_share_title: 'சாத்தியமான சந்தேக உணவுகள்', vet_share_for: (n) => `${n}-க்கு`,
     no_window_meals: 'தொடங்குவதற்கு முன் 2–48 மணி நேரத்தில் உணவு பதிவுகள் இல்லை. சிறந்த முடிவுகளுக்கு ஒவ்வொரு உணவையும் பதிவு செய்யுங்கள்.',
     insights_hint: 'எந்த உணவு காரணமாக இருக்கலாம் என்று பார்க்க ஒரு சம்பவத்தை தட்டவும்.',
@@ -167,6 +170,7 @@ const T = {
     auth_to_signup: 'புதியவரா? கணக்கை உருவாக்கவும்',
     auth_to_signin: 'ஏற்கனவே கணக்கு உள்ளதா? உள்நுழையவும்',
     auth_unavailable: 'உள்நுழைவு ஏற்றப்படுகிறது. தொடர்ந்தால் பக்கத்தை புதுப்பிக்கவும்.',
+    load_failed_retry: 'தரவை ஏற்ற முடியவில்லை — மீண்டும் முயற்சிக்க தட்டவும்',
     t_signed_out: 'வெளியேறிவிட்டீர்கள்',
     su_first: 'முதல் பெயர்', su_last: 'கடைசி பெயர்', su_email: 'மின்னஞ்சல்',
     su_submit: 'கணக்கை உருவாக்கு', su_sending: 'கணக்கு உருவாக்கப்படுகிறது…',
@@ -191,7 +195,7 @@ const T = {
     hh_created: (n) => `${n} உருவாக்கப்பட்டது 🎉`, hh_joined: (n) => `${n}-இல் சேர்ந்தீர்கள் 🎉`,
     hh_panel_title: '👨‍👩‍👧 குடும்பம்',
     hh_invite_label: 'அழைப்பு குறியீடு — குடும்பத்தினரை சேர்க்க இதை பகிரவும்',
-    hh_copy: 'நகலெடு', hh_copied: 'நகலெடுக்கப்பட்டது!',
+    hh_copy: 'நகலெடு', hh_copied: 'நகலெடுக்கப்பட்டது!', hh_copy_failed: 'நகலெடுக்க முடியவில்லை — மேலே உள்ள குறியீட்டைத் தேர்ந்தெடுக்கவும்',
     hh_members: 'உறுப்பினர்கள்', hh_you: 'நீங்கள்', hh_head: 'தலைவர்',
     hh_remove: 'நீக்கு', hh_leave: 'குடும்பத்தை விட்டு வெளியேறு',
     hh_leave_q: 'இந்த குடும்பத்தை விட்டு வெளியேறவா?', hh_leave_msg: 'மீண்டும் சேர அழைப்பு குறியீடு தேவைப்படும்.',
@@ -332,6 +336,23 @@ function ageLabel(birth) {
   return `${Math.floor(months / 12)}y ${Math.floor(months % 12)}m old`;
 }
 
+// Disables the button for the duration of an async handler so a double-tap
+// (very plausible on a touchscreen, especially over a slow connection where
+// the sheet doesn't visibly react right away) can't fire the request twice.
+// This matters beyond the annoyance of a duplicate row: duplicate meals/
+// symptoms directly skew the suspect-food scoring this app exists for.
+function onceClick(el, handler) {
+  el.onclick = async () => {
+    if (el.disabled) return;
+    el.disabled = true;
+    try {
+      await handler();
+    } finally {
+      el.disabled = false;
+    }
+  };
+}
+
 let toastTimer;
 function toast(msg) {
   const el = $('#toast');
@@ -351,13 +372,17 @@ async function call(path, opts = {}) {
     });
     if (res.status === 401) {
       showAuthGate();
-      throw new Error(t('auth_signin'));
+      const err = new Error(t('auth_signin'));
+      err.routed = true; // a screen is already showing — callers shouldn't also show a blank/error state
+      throw err;
     }
     const data = await res.json().catch(() => ({}));
     if (res.status === 409 && data.error === 'no_household') {
       state.household = null;
       showHouseholdGate();
-      throw new Error(data.message || 'no_household');
+      const err = new Error(data.message || 'no_household');
+      err.routed = true;
+      throw err;
     }
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
@@ -382,13 +407,19 @@ async function loadCore() {
 }
 async function loadDay() {
   if (!state.selectedPuppyId) { state.feedings = []; return; }
-  const r = await call(`/feedings?puppy_id=${state.selectedPuppyId}&date=${state.date}`);
-  state.feedings = r.feedings;
+  const puppyId = state.selectedPuppyId, date = state.date;
+  const r = await call(`/feedings?puppy_id=${puppyId}&date=${date}`);
+  // Nothing cancels an in-flight request when the user switches puppy/date
+  // again before this one resolves — whichever response happens to land last
+  // would otherwise win regardless of which puppy/date is actually still
+  // selected, silently showing the wrong meals under the current header.
+  if (state.selectedPuppyId === puppyId && state.date === date) state.feedings = r.feedings;
 }
 async function loadSymptoms() {
   if (!state.selectedPuppyId) { state.symptoms = []; return; }
-  const r = await call(`/symptoms?puppy_id=${state.selectedPuppyId}`);
-  state.symptoms = r.symptoms;
+  const puppyId = state.selectedPuppyId;
+  const r = await call(`/symptoms?puppy_id=${puppyId}`);
+  if (state.selectedPuppyId === puppyId) state.symptoms = r.symptoms;
 }
 
 /* ---------- rendering ---------- */
@@ -482,7 +513,7 @@ function renderFoods() {
       <div class="card tappable" data-edit-food="${f.ROWID}">
         <div class="food-emoji">${FOOD_EMOJI[f.FoodType] || FOOD_EMOJI.other}</div>
         <div class="c-body">
-          <div class="c-title">${esc(f.Name)} ${pup ? `<span class="badge">🐶 ${esc(pup).toUpperCase()}</span>` : ''}</div>
+          <div class="c-title">${esc(f.Name)} ${pup ? `<span class="badge">🐶 ${esc(pup.toUpperCase())}</span>` : ''}</div>
           ${f.Brand ? `<div class="c-sub">${esc(f.Brand)}</div>` : ''}
         </div>
         <span class="tag sage">${esc(ftLabel(f.FoodType).toUpperCase())}</span>
@@ -627,7 +658,7 @@ function sheetAddMeal(presetSlot) {
     </div>
     <button class="cta" id="save-meal">${t('save_meal')}</button>`);
 
-  $('#save-meal').onclick = async () => {
+  onceClick($('#save-meal'), async () => {
     const slotKey = chipVal('slot');
     try {
       await call('/feedings', { method: 'POST', body: JSON.stringify({
@@ -645,7 +676,7 @@ function sheetAddMeal(presetSlot) {
       render();
       toast(t('t_meal_saved'));
     } catch (e) { toast(e.message); }
-  };
+  });
 }
 
 function puppyTagChips(selectedId) {
@@ -687,7 +718,7 @@ function sheetAddFood(existing) {
       };
     };
   }
-  $('#save-food').onclick = async () => {
+  onceClick($('#save-food'), async () => {
     const name = $('#fo-name').value.trim();
     if (!name) return toast(t('t_need_food_name'));
     const payload = {
@@ -707,7 +738,7 @@ function sheetAddFood(existing) {
       render();
       toast(f ? t('t_food_updated') : t('t_food_added'));
     } catch (e) { toast(e.message); }
-  };
+  });
 }
 
 function sheetAddPuppy() {
@@ -717,7 +748,7 @@ function sheetAddPuppy() {
     <div class="field"><label>${t('breed_opt')}</label><input id="p-breed">${mic('p-breed')}</div>
     <div class="field"><label>${t('birth_opt')}</label><input id="p-birth" type="date"></div>
     <button class="cta" id="save-puppy">${t('save_puppy')}</button>`);
-  $('#save-puppy').onclick = async () => {
+  onceClick($('#save-puppy'), async () => {
     const name = $('#p-name').value.trim();
     if (!name) return toast(t('t_need_puppy_name'));
     try {
@@ -728,7 +759,7 @@ function sheetAddPuppy() {
       await loadCore();
       toast(t('t_welcome', name));
     } catch (e) { toast(e.message); }
-  };
+  });
 }
 
 function sheetLogSymptom() {
@@ -742,7 +773,7 @@ function sheetLogSymptom() {
     <div class="field" style="margin-top:14px"><label>${t('onset')}</label><input id="s-onset" type="datetime-local" value="${nowLocal().replace(' ', 'T')}"></div>
     <div class="field"><label>${t('notes_opt')}</label><input id="s-notes">${mic('s-notes')}</div>
     <button class="cta" id="save-symptom">${t('save_analyze')}</button>`);
-  $('#save-symptom').onclick = async () => {
+  onceClick($('#save-symptom'), async () => {
     const onset = ($('#s-onset').value || '').replace('T', ' ');
     if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(onset)) return toast(t('t_need_onset'));
     try {
@@ -758,7 +789,7 @@ function sheetLogSymptom() {
       render();
       showAnalysis(r.symptom, r.analysis);
     } catch (e) { toast(e.message); }
-  };
+  });
 }
 
 // Plain-text version of the same analysis, for handing to a vet — WhatsApp,
@@ -809,7 +840,10 @@ async function shareWithVet(symptom, analysis) {
     await navigator.clipboard.writeText(text);
     toast(t('share_vet_copied'));
   } catch (e) {
-    toast(t('share_vet_copied'));
+    // A parent may otherwise believe suspect-food info reached their vet when
+    // it didn't — this is the one place a false "success" toast is actually
+    // safety-relevant, not just cosmetic.
+    toast(t('share_vet_failed'));
   }
 }
 
@@ -1052,7 +1086,22 @@ async function showApp() {
     state.userId = r.your_user_id;
     state.pendingRequest = r.pending_request || null;
   } catch (e) {
-    return; // call() already routed to the auth or household gate
+    if (e.routed) return; // call() already routed to the auth or household gate
+    // A generic failure (network blip, timeout, 500) doesn't route anywhere —
+    // #authScreen is already hidden above and neither #householdScreen nor
+    // #appShell is shown yet, so without this the page goes fully blank with
+    // no indication anything went wrong and no way forward but a manual
+    // reload. Re-show the auth screen with a retry affordance instead.
+    $('#authScreen').hidden = false;
+    $('#authStatus').textContent = t('load_failed_retry');
+    $('#authStatus').classList.add('retry');
+    $('#authStatus').onclick = () => {
+      $('#authStatus').classList.remove('retry');
+      $('#authStatus').onclick = null;
+      $('#authStatus').textContent = t('auth_checking');
+      showApp();
+    };
+    return;
   }
   if (!state.household) return showHouseholdGate();
   enterApp();
@@ -1237,9 +1286,15 @@ function renderFamilySheet(members, joinRequests) {
     <button type="button" class="btn-ghost" id="leaveFamilyBtn" style="width:100%;padding:12px;border-radius:99px;font-weight:700;margin-top:16px;">${t('hh_leave')}</button>`);
 
   $('#copyInviteBtn').onclick = () => {
-    (navigator.clipboard?.writeText(hh.invite_code) || Promise.reject()).catch(() => {});
-    $('#copyInviteBtn').textContent = t('hh_copied');
-    setTimeout(() => { const b = document.getElementById('copyInviteBtn'); if (b) b.textContent = t('hh_copy'); }, 1500);
+    (navigator.clipboard?.writeText(hh.invite_code) || Promise.reject())
+      .then(() => {
+        $('#copyInviteBtn').textContent = t('hh_copied');
+        setTimeout(() => { const b = document.getElementById('copyInviteBtn'); if (b) b.textContent = t('hh_copy'); }, 1500);
+      })
+      // The code is still visible on screen either way, so this is lower-
+      // stakes than the vet-share failure, but the button shouldn't claim
+      // "Copied!" when nothing was actually copied to the clipboard.
+      .catch(() => toast(t('hh_copy_failed')));
   };
   $('#sheet').querySelectorAll('[data-make-head]').forEach((btn) => {
     btn.onclick = () => confirmMakeHead(btn.dataset.makeHead, btn.dataset.makeHeadName);

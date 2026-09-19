@@ -92,8 +92,11 @@ object PushNotifications {
      */
     fun deregisterDevice(onSuccess: () -> Unit, onFailure: () -> Unit) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            // task.result THROWS (the wrapped failure exception) if the task
+            // didn't succeed — isSuccessful must be checked first, never after.
+            if (!task.isSuccessful) return@addOnCompleteListener onFailure()
             val token = task.result
-            if (!task.isSuccessful || token.isNullOrBlank()) return@addOnCompleteListener onFailure()
+            if (token.isNullOrBlank()) return@addOnCompleteListener onFailure()
             attemptDeregister(token, attempt = 1, onSuccess, onFailure)
         }
     }

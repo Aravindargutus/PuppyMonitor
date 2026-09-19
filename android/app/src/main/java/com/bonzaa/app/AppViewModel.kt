@@ -208,12 +208,25 @@ class AppViewModel : ViewModel() {
 
     private suspend fun loadDay(puppyId: String, date: LocalDate) {
         val feedings = api.getFeedings(puppyId, date.format(dateFmt)).feedings
-        _state.value = _state.value.copy(feedings = feedings.sortedBy { it.fedAt })
+        // A newer selectPuppy/selectDate (or a trailing reload from addFeeding/
+        // deleteFeeding for a puppy the user has since switched away from) can
+        // finish after this call started. Nothing here cancels the losing
+        // request, so without this check whichever response happens to land
+        // last wins — silently showing one puppy's/day's meals under a header
+        // that says a different puppy/day is selected. Discard instead of
+        // applying a response that's no longer for the currently-selected
+        // puppy/day.
+        if (_state.value.selectedPuppyId == puppyId && _state.value.date == date) {
+            _state.value = _state.value.copy(feedings = feedings.sortedBy { it.fedAt })
+        }
     }
 
     private suspend fun loadSymptoms(puppyId: String) {
         val symptoms = api.getSymptoms(puppyId).symptoms
-        _state.value = _state.value.copy(symptoms = symptoms)
+        // Same staleness guard as loadDay() — see its comment.
+        if (_state.value.selectedPuppyId == puppyId) {
+            _state.value = _state.value.copy(symptoms = symptoms)
+        }
     }
 
     fun refreshSymptoms() = launchSafe {

@@ -103,6 +103,27 @@ function esc(s) {
 	return String(s).replace(/'/g, "''");
 }
 
+// GET/DELETE routes validate `Number(query.get('id'))` and reject falsy
+// (including NaN) before ever building a query. POST/PUT routes that only
+// check a body field's truthiness let a non-numeric-but-truthy value (a
+// string like "abc", or "1e400" -> Infinity) through to assertPuppyInHousehold/
+// assertRowInHousehold, where Number(x) becomes the literal text NaN/Infinity
+// embedded in the ZCQL string — not valid SQL, so it throws and surfaces as a
+// generic 500 instead of a clean 400. This normalizes both paths.
+function positiveInt(v) {
+	const n = Number(v);
+	return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function isValidDate(s) {
+	const m = typeof s === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+	if (!m) return false;
+	const year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+	if (month < 1 || month > 12) return false;
+	const d = new Date(Date.UTC(year, month - 1, day));
+	return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
 // 'YYYY-MM-DD HH:mm:ss' shifted by +/- hours, still in project-local wall time
 function shiftDatetime(dtString, hours) {
 	const d = new Date(dtString.replace(' ', 'T') + 'Z'); // treat as UTC just for arithmetic
@@ -794,6 +815,22 @@ const routes = {
 			);
 			if (membership) await app.datastore().table('HouseholdMembers').deleteRow(Number(membership.ROWID));
 			if (isHead) {
+				// This is the last member leaving (the "others exist" check above
+				// already guarantees that) — the whole household is being torn
+				// down, not just this membership. Puppies/FoodItems/FeedingLogs/
+				// SymptomLogs all belong to this household (the latter two
+				// transitively, through PuppyId) and have no other way back to
+				// life once HouseholdMembers can no longer resolve anyone into
+				// this ctx.household — cascade them now or they're permanently
+				// orphaned, unreachable dead weight forever.
+				const puppies = await zcqlAll(zcql, `SELECT ROWID FROM Puppies WHERE HouseholdId = ${ctx.household.id}`, 'Puppies');
+				for (const p of puppies) {
+					const puppyId = Number(p.ROWID);
+					await zcql.executeZCQLQuery(`DELETE FROM FeedingLogs WHERE PuppyId = ${puppyId}`);
+					await zcql.executeZCQLQuery(`DELETE FROM SymptomLogs WHERE PuppyId = ${puppyId}`);
+					await app.datastore().table('Puppies').deleteRow(puppyId);
+				}
+				await zcql.executeZCQLQuery(`DELETE FROM FoodItems WHERE HouseholdId = ${ctx.household.id}`);
 				// The household row itself (lock included) is gone after this —
 				// releaseHouseholdLock's UPDATE below simply matches zero rows.
 				await app.datastore().table('Households').deleteRow(ctx.household.id);
@@ -942,6 +979,9 @@ const routes = {
 	'POST /puppies': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
+		if (body.birth_date && !isValidDate(body.birth_date)) {
+			return sendJson(res, 400, { error: "birth_date must be 'YYYY-MM-DD'" });
+		}
 		const row = await app.datastore().table('Puppies').insertRow({
 			Name: body.name,
 			Breed: body.breed || '',
@@ -957,6 +997,13 @@ const routes = {
 		const id = Number(query.get('id'));
 		if (!id) return sendJson(res, 400, { error: 'id is required' });
 		await assertRowInHousehold(app, 'Puppies', id, ctx.household.id);
+		// FeedingLogs/SymptomLogs carry no HouseholdId of their own — they're
+		// scoped transitively through PuppyId. Without deleting them here they'd
+		// become permanently orphaned: no route can ever reach them again (every
+		// lookup goes through assertPuppyInHousehold, which 404s the instant the
+		// Puppies row is gone), but they'd sit in the table forever.
+		await app.zcql().executeZCQLQuery(`DELETE FROM FeedingLogs WHERE PuppyId = ${id}`);
+		await app.zcql().executeZCQLQuery(`DELETE FROM SymptomLogs WHERE PuppyId = ${id}`);
 		await app.datastore().table('Puppies').deleteRow(id);
 		sendJson(res, 200, { deleted: String(id) });
 	},
@@ -971,31 +1018,46 @@ const routes = {
 	'POST /foods': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
 		if (!body.name) return sendJson(res, 400, { error: 'name is required' });
-		if (body.usual_puppy_id) await assertPuppyInHousehold(app, body.usual_puppy_id, ctx.household.id);
+		let usualPuppyId = null;
+		if (body.usual_puppy_id) {
+			usualPuppyId = positiveInt(body.usual_puppy_id);
+			if (!usualPuppyId) return sendJson(res, 400, { error: 'usual_puppy_id must be a positive integer' });
+			await assertPuppyInHousehold(app, usualPuppyId, ctx.household.id);
+		}
 		const row = await app.datastore().table('FoodItems').insertRow({
 			Name: body.name,
 			Brand: body.brand || '',
 			FoodType: body.food_type || 'other',
 			Notes: body.notes || '',
 			HouseholdId: ctx.household.id,
-			...(body.usual_puppy_id ? { UsualPuppyId: Number(body.usual_puppy_id) } : {})
+			...(usualPuppyId ? { UsualPuppyId: usualPuppyId } : {})
 		});
 		sendJson(res, 201, { food: row });
 	},
 
 	'PUT /foods': async (app, req, res, query, ctx) => {
 		const body = await getBody(req);
-		if (!body.id) return sendJson(res, 400, { error: 'id is required' });
-		await assertRowInHousehold(app, 'FoodItems', body.id, ctx.household.id);
-		if (body.usual_puppy_id) await assertPuppyInHousehold(app, body.usual_puppy_id, ctx.household.id);
-		const patch = { ROWID: Number(body.id) };
-		if (body.name != null) patch.Name = body.name;
+		const id = positiveInt(body.id);
+		if (!id) return sendJson(res, 400, { error: 'id must be a positive integer' });
+		await assertRowInHousehold(app, 'FoodItems', id, ctx.household.id);
+		const patch = { ROWID: id };
+		if (body.name != null) {
+			if (!body.name) return sendJson(res, 400, { error: 'name cannot be empty' });
+			patch.Name = body.name;
+		}
 		if (body.brand != null) patch.Brand = body.brand;
 		if (body.food_type != null) patch.FoodType = body.food_type;
 		if (body.notes != null) patch.Notes = body.notes;
 		// present-but-empty clears the tag; absent leaves it untouched
 		if ('usual_puppy_id' in body) {
-			patch.UsualPuppyId = body.usual_puppy_id ? Number(body.usual_puppy_id) : null;
+			if (body.usual_puppy_id) {
+				const usualPuppyId = positiveInt(body.usual_puppy_id);
+				if (!usualPuppyId) return sendJson(res, 400, { error: 'usual_puppy_id must be a positive integer' });
+				await assertPuppyInHousehold(app, usualPuppyId, ctx.household.id);
+				patch.UsualPuppyId = usualPuppyId;
+			} else {
+				patch.UsualPuppyId = null;
+			}
 		}
 		const row = await app.datastore().table('FoodItems').updateRow(patch);
 		sendJson(res, 200, { food: row });
@@ -1005,6 +1067,15 @@ const routes = {
 		const id = Number(query.get('id'));
 		if (!id) return sendJson(res, 400, { error: 'id is required' });
 		await assertRowInHousehold(app, 'FoodItems', id, ctx.household.id);
+		// Unlike a deleted puppy, a food's FeedingLogs stay reachable (via the
+		// puppy they belong to) even after the food itself is gone — they'd
+		// just show "Unknown food" forever, with no brand/type, in exactly the
+		// suspect-food analysis this app exists for. Block instead of silently
+		// degrading historical accuracy.
+		const stillFed = await zcqlOne(app.zcql(), `SELECT ROWID FROM FeedingLogs WHERE FoodItemId = ${id}`, 'FeedingLogs');
+		if (stillFed) {
+			return sendJson(res, 409, { error: 'This food has feeding history and can’t be deleted' });
+		}
 		await app.datastore().table('FoodItems').deleteRow(id);
 		sendJson(res, 200, { deleted: String(id) });
 	},
@@ -1016,6 +1087,15 @@ const routes = {
 		if (!puppyId) return sendJson(res, 400, { error: 'puppy_id is required' });
 		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		const date = query.get('date'); // YYYY-MM-DD → that day's timeline, morning to night
+		// A malformed date (missing zero-padding, wrong separator, etc.) isn't
+		// invalid SQL — esc() lets it straight through — it's a STRING that
+		// sorts differently than a real 'YYYY-MM-DD' boundary would, so the
+		// query above silently returns zero rows instead of erroring. Confirmed
+		// e.g. '2026-9-5' > '2026-09-05...' lexicographically ('9' > '0'),
+		// so a whole day's feedings would just vanish with no indication why.
+		if (date && !isValidDate(date)) {
+			return sendJson(res, 400, { error: "date must be 'YYYY-MM-DD'" });
+		}
 		let where = `PuppyId = ${puppyId}`;
 		if (date) where += ` AND FedAt >= '${esc(date)} 00:00:00' AND FedAt <= '${esc(date)} 23:59:59'`;
 		const rows = await zcqlAll(
@@ -1033,19 +1113,30 @@ const routes = {
 		for (const k of required) {
 			if (!body[k]) return sendJson(res, 400, { error: `${k} is required` });
 		}
+		const puppyId = positiveInt(body.puppy_id);
+		const foodItemId = positiveInt(body.food_item_id);
+		if (!puppyId) return sendJson(res, 400, { error: 'puppy_id must be a positive integer' });
+		if (!foodItemId) return sendJson(res, 400, { error: 'food_item_id must be a positive integer' });
 		if (!isValidDatetime(body.fed_at)) {
 			return sendJson(res, 400, { error: "fed_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
-		await assertPuppyInHousehold(app, body.puppy_id, ctx.household.id);
+		let quantity = 0;
+		if (body.quantity != null) {
+			quantity = Number(body.quantity);
+			if (!Number.isFinite(quantity) || quantity < 0) {
+				return sendJson(res, 400, { error: 'quantity must be a non-negative number' });
+			}
+		}
+		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		// Without this, a feeding could point at another household's FoodItems row —
 		// computeSuspects()'s metadata lookup isn't household-scoped (it trusts the
 		// FoodItemIds it's handed came from an already-verified puppy), so that food's
 		// name/brand/type would leak into this household's suspect analysis.
-		await assertRowInHousehold(app, 'FoodItems', body.food_item_id, ctx.household.id);
+		await assertRowInHousehold(app, 'FoodItems', foodItemId, ctx.household.id);
 		const row = await app.datastore().table('FeedingLogs').insertRow({
-			PuppyId: Number(body.puppy_id),
-			FoodItemId: Number(body.food_item_id),
-			Quantity: body.quantity != null ? Number(body.quantity) : 0,
+			PuppyId: puppyId,
+			FoodItemId: foodItemId,
+			Quantity: quantity,
 			Unit: body.unit || 'g',
 			MealSlot: body.meal_slot, // morning | noon | evening | night
 			FedAt: body.fed_at,
@@ -1087,23 +1178,41 @@ const routes = {
 		for (const k of required) {
 			if (!body[k]) return sendJson(res, 400, { error: `${k} is required` });
 		}
+		const puppyId = positiveInt(body.puppy_id);
+		if (!puppyId) return sendJson(res, 400, { error: 'puppy_id must be a positive integer' });
 		if (!isValidDatetime(body.onset_at)) {
 			return sendJson(res, 400, { error: "onset_at must be 'YYYY-MM-DD HH:mm:ss'" });
 		}
-		await assertPuppyInHousehold(app, body.puppy_id, ctx.household.id);
+		await assertPuppyInHousehold(app, puppyId, ctx.household.id);
 		const row = await app.datastore().table('SymptomLogs').insertRow({
-			PuppyId: Number(body.puppy_id),
+			PuppyId: puppyId,
 			Symptom: body.symptom,
 			Severity: body.severity || 'mild',
 			OnsetAt: body.onset_at,
 			Notes: body.notes || ''
 		});
-		// Immediately return the suspect analysis for this incident
-		const analysis = await computeSuspects(app, body.puppy_id, body.onset_at);
+		// The symptom is already saved at this point — a failure below must
+		// never look like the whole request failed, or a worried user retrying
+		// logs the same incident twice. computeSuspects() only reads already-
+		// validated data, so a failure here is a transient Data Store hiccup,
+		// not a bad request; fall back to an empty-but-valid analysis shape
+		// (both clients already handle zero suspects) rather than a 500.
+		let analysis;
+		try {
+			analysis = await computeSuspects(app, puppyId, body.onset_at);
+		} catch (e) {
+			console.error('computeSuspects failed after symptom was saved:', e);
+			analysis = {
+				window_start: null,
+				window_end: null,
+				note: 'Your symptom was saved, but the suspect-food analysis could not be run — check Insights again shortly.',
+				suspects: []
+			};
+		}
 		sendJson(res, 201, { symptom: row, analysis });
 		// The person logging it doesn't need to wait on push delivery, but the
 		// function must stay alive until it's attempted — await after responding.
-		await notifyHouseholdOfSymptom(app, ctx, body.puppy_id)
+		await notifyHouseholdOfSymptom(app, ctx, puppyId)
 			.catch((e) => console.error('notifyHouseholdOfSymptom failed:', e));
 	},
 
