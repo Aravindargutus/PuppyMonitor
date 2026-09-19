@@ -112,8 +112,17 @@ fun AddMealSheet(
                 }
 
                 Text(lang["meal_slot"], style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MealSlots.forEach { s ->
+                // A plain Row here (unlike the LazyRow used for food chips just
+                // above) doesn't scroll or wrap: on a narrower screen — or with
+                // longer localized labels — four chips can exceed the available
+                // width, and a non-scrolling Row has nowhere to put the excess.
+                // FilterChip then gets squeezed toward zero width while its
+                // stadium shape stays fully rounded, rendering as a tall, empty
+                // vertical pill instead of a chip — confirmed live on a Pixel 9a
+                // (Android 17, 420dpi) which never happened on the wider/lower-
+                // density phone this was originally tested on.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(MealSlots, key = { it.key }) { s ->
                         FilterChip(
                             selected = slot == s.key,
                             onClick = {
@@ -389,8 +398,11 @@ fun LogSymptomSheet(
                 }
             }
             Text(lang["severity"], style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SeverityOptions.forEach { s ->
+            // LazyRow, not a plain Row — see the meal-slot chips above for why:
+            // a non-scrolling Row degenerates a squeezed FilterChip into a
+            // stretched empty pill instead of wrapping or clipping cleanly.
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(SeverityOptions) { s ->
                     FilterChip(selected = severity == s, onClick = { severity = s }, label = { Text(lang[s]) })
                 }
             }
